@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Storage / uploads (user-uploaded files)
+storage/uploads/*
+!storage/uploads/.gitkeep
+!storage/uploads/.htaccess
+
+# Public uploads (user-uploaded images)
+public/images/uploads/*
+!public/images/uploads/.gitkeep
+
+# Google OAuth config (contains client secrets)
+integrations/google-login/backend/google-auth-config.php
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Package manager lock (optional — remove this line if you want reproducible installs)
+# package-lock.json

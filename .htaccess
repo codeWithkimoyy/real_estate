@@ -1,0 +1,31 @@
+RewriteEngine On
+Options -Indexes
+
+# ── COOP header: allow Google Sign-In popup to postMessage back ──
+<IfModule mod_headers.c>
+  Header set Cross-Origin-Opener-Policy "same-origin-allow-popups"
+</IfModule>
+
+# ── Block sensitive files (.env, .git*, .htpasswd, etc.) ──
+<FilesMatch "^\.(?:env|git|htaccess|htpasswd)">
+  Require all denied
+</FilesMatch>
+
+# ── Block database migration directory ────────────────────
+RewriteRule ^database/ - [F,L]
+
+# Open the built SPA when hitting /Activities/real_estate/
+RewriteRule ^$ dist/index.html [L]
+
+# Map built asset/public paths expected by dist/index.html
+RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+RewriteRule ^images/(.*)$ dist/images/$1 [L]
+
+# Keep API and DB scripts handled normally
+RewriteCond %{REQUEST_URI} !^/Activities/real_estate/api/
+RewriteCond %{REQUEST_URI} !^/Activities/real_estate/database/
+
+# SPA fallback for client-side routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ dist/index.html [L]

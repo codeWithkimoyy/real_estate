@@ -1,0 +1,6 @@
+Options -Indexes
+RemoveHandler .php .phtml .php3 .php4 .php5
+ForceType application/octet-stream
+<FilesMatch "\.(?:php|phtml|php[345])$">
+  Require all denied
+</FilesMatch>
