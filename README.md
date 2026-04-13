@@ -2,115 +2,112 @@
 
 A full-stack real estate platform built with **React + TypeScript** (frontend) and **PHP + MySQL** (backend).
 
-> **Note:** This project is still under active development. Features and structure may change.
+> Status: Active development. Features and structure may change as the project evolves.
 
-## Features
+## Core Features
 
-- Property browsing, search, and detailed listings
-- User registration & login with session-based auth
-- Role-based access control (Administrator, Agent, Seller, Buyer, Clerk)
-- Role-adaptive dashboards with module-specific tabs
+- Property browsing, filtering, and detailed listings
+- User registration and login with session-based authentication
+- Role-based access control: Administrator, Agent, Seller, Buyer, Clerk
+- Dashboard modules based on role permissions
 - Inquiries, favorites, appointments, and notifications
-- Payments and reservation tracking
+- Payments, reservations, and dispute handling
 - Property image uploads
-- Dispute management
 - Admin tools: user management, audit logs, analytics, system controls
 - Google Sign-In integration
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 19, TypeScript, React Router, Tailwind CSS, GSAP |
-| Backend | PHP 8.x, MySQL (InnoDB) |
-| Build | Vite |
-| Server | Apache (WAMP / XAMPP) |
+- Frontend: React 19, TypeScript, React Router, Tailwind CSS, GSAP
+- Backend: PHP 8+, MySQL (InnoDB)
+- Build Tool: Vite
+- Server: Apache (WAMP or XAMPP)
 
 ## Prerequisites
 
-- **PHP** 8.0+
-- **MySQL** 5.7+ or MariaDB 10.3+
-- **Node.js** 18+
-- **Apache** with mod_rewrite enabled (WAMP, XAMPP, or similar)
+- Node.js 18+
+- PHP 8.0+
+- MySQL 5.7+ or MariaDB 10.3+
+- Apache with `mod_rewrite` enabled
 
-## Getting Started
+## Local Setup
 
-### 1. Clone the repository
+1. Clone the repository:
 
 ```bash
 git clone https://github.com/codeWithkimoyy/real_estate.git
 cd real_estate
 ```
 
-### 2. Install frontend dependencies
+2. Install frontend dependencies:
 
 ```bash
 npm install
 ```
 
-### 3. Set up environment variables
+3. Configure environment:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and configure your database credentials and other settings.
+Then edit `.env` with your local database and API settings.
 
-### 4. Set up the database
+4. Set up the database by importing SQL files in this order:
 
-Import the schema and migrations into MySQL:
+- `database/schema.sql`
+- `database/migration_v2.sql`
+- `database/migrate_all.sql`
 
-```sql
-SOURCE database/schema.sql;
-SOURCE database/migration_v2.sql;
-SOURCE database/migrate_all.sql;
-```
-
-### 5. Run the app
-
-**Development (with Vite hot reload):**
+5. Run the development server:
 
 ```bash
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173` and proxies API calls to your Apache/PHP backend.
+- Frontend default URL: `http://localhost:5173`
+- Backend/API base URL (frontend default): `http://localhost/Activities/real_estate/api`
 
-**Production build:**
+6. Build for production:
 
 ```bash
 npm run build
 ```
 
-This outputs to `dist/`. Apache serves the built app and API from the same host via `.htaccess`.
-
 ## Project Structure
 
-```
-├── api/                # PHP backend API endpoints
-├── database/           # SQL schema and migration files
-├── integrations/       # Third-party integrations (Google Sign-In)
-├── public/             # Static assets (images, favicon)
-├── src/
-│   ├── components/     # Shared React components
-│   ├── data/           # TypeScript types and data
-│   ├── lib/            # API client, auth, RBAC utilities
-│   └── pages/          # Page components and dashboard tabs
-├── storage/            # File uploads (gitignored)
-├── .env.example        # Environment variable template
-└── vite.config.ts      # Vite configuration
+```text
+api/                         PHP API endpoints
+database/                    Schema and migration SQL files
+integrations/google-login/   Google authentication integration
+public/                      Static assets
+src/components/              Shared React components
+src/lib/                     API client, auth, RBAC utilities
+src/pages/                   Page-level UI and dashboard tabs
+storage/uploads/             Uploaded files (should be gitignored)
 ```
 
-## User Roles
+## Available Scripts
 
-| Role | Description |
-|------|-------------|
-| **Administrator** | Full system governance, user management, approvals, audit logs |
-| **Agent** | Manage own listings, handle inquiries and appointments |
-| **Seller** | Publish properties, track inquiries, payments, reservations |
-| **Buyer** | Browse listings, save favorites, make inquiries and payments |
-| **Clerk** | Front-desk operations, user verification, appointment coordination |
+- `npm run dev` - Start Vite dev server
+- `npm run build` - Type-check and build production bundle
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
+
+## Roles
+
+- Administrator: Full system governance, approvals, logs, analytics
+- Agent: Manages listings, inquiries, appointments
+- Seller: Publishes properties and tracks transactions
+- Buyer: Browsing, favorites, inquiries, payments
+- Clerk: Verification and appointment support operations
+
+## Notes
+
+- Keep secrets in `.env` and never commit them.
+- Ensure `storage/uploads` and `public/images/uploads` are gitignored if runtime-generated.
+- If image previews fail in local development, verify API base URL and upload path mapping.
 
 ## License
 
-This project is for educational and personal use.
+Educational and personal use.
