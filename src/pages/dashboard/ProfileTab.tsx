@@ -33,6 +33,7 @@ export default function ProfileTab() {
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
   const [avatar, setAvatar] = useState('');
+  const [avatarError, setAvatarError] = useState(false);
 
   // Password form
   const [currentPw, setCurrentPw] = useState('');
@@ -63,6 +64,10 @@ export default function ProfileTab() {
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [avatar]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,8 +175,13 @@ export default function ProfileTab() {
       <div className="rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.06] p-6 mb-6">
         <div className="flex items-center gap-5">
           <div className="relative group">
-            {avatar ? (
-              <img src={avatar} alt="Avatar" className="w-20 h-20 rounded-2xl object-cover ring-2 ring-white/10" />
+            {avatar && !avatarError ? (
+              <img
+                src={avatar}
+                alt="Avatar"
+                className="w-20 h-20 rounded-2xl object-cover ring-2 ring-white/10"
+                onError={() => setAvatarError(true)}
+              />
             ) : (
               <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#D4A574] to-[#b8895c] flex items-center justify-center text-navy font-bold text-xl shadow-lg shadow-[#D4A574]/20">
                 {initials}

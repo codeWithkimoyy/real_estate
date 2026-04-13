@@ -1,4 +1,4 @@
-# EstateFlow
+# Brader Real Estate
 
 A full-stack real estate platform built with **React + TypeScript** (frontend) and **PHP + MySQL** (backend).
 

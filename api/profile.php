@@ -41,7 +41,7 @@ if ($method === 'PUT') {
     $email     = strtolower(trim((string) ($body['email'] ?? $existing['email'])));
     $phone     = sanitize_string((string) ($body['phone']     ?? $existing['phone']), 30);
     $bio       = array_key_exists('bio', $body) ? sanitize_string((string) $body['bio'], 1000) : ($existing['bio'] ?? '');
-    $avatar    = array_key_exists('avatar', $body) ? sanitize_string((string) $body['avatar']) : ($existing['avatar'] ?? '');
+    $avatar    = array_key_exists('avatar', $body) ? sanitize_string((string) $body['avatar'], 1024) : ($existing['avatar'] ?? '');
 
     if ($firstName === '' || $lastName === '') {
         send_json(422, ['ok' => false, 'error' => 'First name and last name are required']);

@@ -8,7 +8,7 @@ export default function AdminSystemTab() {
       color: 'from-blue-500/20 to-blue-500/5',
       iconBg: 'bg-blue-500/15 text-blue-400',
       items: [
-        { label: 'Platform', value: 'EstateFlow v1.0' },
+        { label: 'Platform', value: 'Brader Real Estate v1.0' },
         { label: 'Frontend', value: 'React 19 + TypeScript + Vite' },
         { label: 'Backend', value: 'PHP REST API' },
         { label: 'Styling', value: 'Tailwind CSS' },

@@ -90,7 +90,7 @@ return [
     'smtp_user'      => env('SMTP_USER', ''),
     'smtp_pass'      => env('SMTP_PASS', ''),
     'smtp_from'      => env('SMTP_FROM', 'noreply@estateflow.ph'),
-    'smtp_from_name' => env('SMTP_FROM_NAME', 'EstateFlow'),
+    'smtp_from_name' => env('SMTP_FROM_NAME', 'Brader Real Estate'),
 
     // Google Maps
     'google_maps_api_key' => env('GOOGLE_MAPS_API_KEY', ''),

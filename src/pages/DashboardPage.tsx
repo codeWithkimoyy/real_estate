@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Home, MessageSquare, Calendar, Heart, Users, ShieldCheck, BarChart3, FileText,
-  Plus, Trash2, CheckCircle, XCircle, AlertCircle, Clock, Eye, Send, Settings,
-  ChevronRight, Building2, MapPin, BedDouble, Bath, Menu, X, UserCog, CreditCard,
+  Home, MessageSquare, Calendar, Heart, ShieldCheck, FileText,
+  Plus, Trash2, CheckCircle, XCircle, AlertCircle, Clock, Eye, Send,
+  ChevronRight, Building2, MapPin, BedDouble, Bath, Menu, X, CreditCard,
   Store, Hash, Search, Bookmark, Printer,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -22,10 +22,7 @@ import AdminAnalyticsTab from './dashboard/AdminAnalyticsTab';
 import AdminSystemTab from './dashboard/AdminSystemTab';
 import AdminAuditTab from './dashboard/AdminAuditTab';
 import ProfileTab from './dashboard/ProfileTab';
-
-type TabKey =
-  | 'my-listings' | 'inquiries' | 'appointments' | 'favorites' | 'payments' | 'reservations'
-  | 'approvals' | 'users' | 'analytics' | 'audit' | 'system' | 'profile';
+import { buildTabsForRole, type TabKey } from './dashboard/shared/tabConfig';
 
 /* ── Stat counter cards shown at the top of main panels ──── */
 function QuickStats({ items }: { items: { label: string; value: string | number; icon: typeof Home; color: string }[] }) {
@@ -74,6 +71,7 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Home; tit
 
 export default function DashboardPage() {
   const [auth, setAuth] = useState(getStoredAuth);
+  const [sidebarAvatarError, setSidebarAvatarError] = useState(false);
 
   useEffect(() => {
     const onAuthChange = () => setAuth(getStoredAuth());
@@ -81,55 +79,16 @@ export default function DashboardPage() {
     return () => window.removeEventListener('estateflow-auth-changed', onAuthChange);
   }, []);
 
+  useEffect(() => {
+    setSidebarAvatarError(false);
+  }, [auth?.user.avatar]);
+
   const role = auth?.user.role;
   const userId = auth?.user.id;
   const isAdmin = role === 'administrator';
-  const isBuyer = role === 'buyer';
   const isClerk = role === 'clerk';
 
-  const tabs: { key: TabKey; label: string; icon: typeof Home; group?: string }[] = [];
-  if (isBuyer) {
-    tabs.push(
-      { key: 'favorites', label: 'Favorites', icon: Heart, group: 'Main' },
-      { key: 'reservations', label: 'Reservations', icon: Bookmark, group: 'Main' },
-      { key: 'inquiries', label: 'My Inquiries', icon: MessageSquare, group: 'Main' },
-      { key: 'appointments', label: 'Appointments', icon: Calendar, group: 'Main' },
-      { key: 'payments', label: 'Payments', icon: CreditCard, group: 'Main' },
-      { key: 'profile', label: 'My Profile', icon: UserCog, group: 'Account' },
-    );
-  } else if (isClerk) {
-    tabs.push(
-      { key: 'appointments', label: 'Appointments', icon: Calendar, group: 'Front Desk' },
-      { key: 'inquiries', label: 'Inquiries', icon: MessageSquare, group: 'Front Desk' },
-      { key: 'payments', label: 'Payments', icon: CreditCard, group: 'Front Desk' },
-      { key: 'reservations', label: 'Reservations', icon: Bookmark, group: 'Front Desk' },
-      { key: 'users', label: 'User Verification', icon: ShieldCheck, group: 'Verification' },
-      { key: 'profile', label: 'My Profile', icon: UserCog, group: 'Account' },
-    );
-  } else if (isAdmin) {
-    tabs.push(
-      { key: 'approvals', label: 'Approvals', icon: ShieldCheck, group: 'Management' },
-      { key: 'my-listings', label: 'All Listings', icon: Home, group: 'Management' },
-      { key: 'inquiries', label: 'Inquiries', icon: MessageSquare, group: 'Communication' },
-      { key: 'appointments', label: 'Appointments', icon: Calendar, group: 'Communication' },
-      { key: 'payments', label: 'Payments', icon: CreditCard, group: 'Finance' },
-      { key: 'reservations', label: 'Reservations', icon: Bookmark, group: 'Finance' },
-      { key: 'users', label: 'Users', icon: Users, group: 'Administration' },
-      { key: 'analytics', label: 'Analytics', icon: BarChart3, group: 'Administration' },
-      { key: 'audit', label: 'Audit Logs', icon: FileText, group: 'Administration' },
-      { key: 'system', label: 'System', icon: Settings, group: 'Administration' },
-      { key: 'profile', label: 'My Profile', icon: UserCog, group: 'Account' },
-    );
-  } else {
-    tabs.push(
-      { key: 'my-listings', label: 'My Listings', icon: Home, group: 'Properties' },
-      { key: 'reservations', label: 'Reservations', icon: Bookmark, group: 'Properties' },
-      { key: 'inquiries', label: 'Inquiries', icon: MessageSquare, group: 'Communication' },
-      { key: 'appointments', label: 'Appointments', icon: Calendar, group: 'Communication' },
-      { key: 'payments', label: 'Payments', icon: CreditCard, group: 'Finance' },
-      { key: 'profile', label: 'My Profile', icon: UserCog, group: 'Account' },
-    );
-  }
+  const tabs = buildTabsForRole(role);
 
   // Group tabs
   const groups = [...new Set(tabs.map((t) => t.group ?? ''))];
@@ -205,8 +164,13 @@ export default function DashboardPage() {
           {/* User card */}
           <div className="p-5 m-4 mb-0 rounded-xl bg-gradient-to-br from-white/[0.06] to-transparent border border-white/[0.06]">
             <div className="flex items-center gap-3">
-              {auth?.user.avatar ? (
-                <img src={auth.user.avatar} alt="" className="w-11 h-11 rounded-xl object-cover ring-2 ring-white/10 shadow-lg" />
+              {auth?.user.avatar && !sidebarAvatarError ? (
+                <img
+                  src={auth.user.avatar}
+                  alt=""
+                  className="w-11 h-11 rounded-xl object-cover ring-2 ring-white/10 shadow-lg"
+                  onError={() => setSidebarAvatarError(true)}
+                />
               ) : (
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#D4A574] to-[#b8895c] flex items-center justify-center text-navy font-bold text-sm shadow-lg shadow-[#D4A574]/20">
                   {auth?.user.firstName?.charAt(0)}{auth?.user.lastName?.charAt(0)}
@@ -1304,7 +1268,7 @@ function ReservationsPanel() {
               <div ref={slipRef}>
                 <div className="slip">
                   <div className="header">
-                    <h1>EstateFlow</h1>
+                    <h1>Brader Real Estate</h1>
                     <p>Reservation Confirmation Slip</p>
                   </div>
                   <div className="row"><span className="label">Reservation ID</span><span className="value">#{slipReservation.id}</span></div>

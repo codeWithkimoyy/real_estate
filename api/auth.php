@@ -246,7 +246,8 @@ if ($action === 'google_login') {
     }
 
     // Existing user — log in directly
-    if (($user['avatar'] ?? null) === null && $picture !== '') {
+    // Refresh avatar from Google when available to recover from stale/truncated URLs.
+    if ($picture !== '' && (string) ($user['avatar'] ?? '') !== $picture) {
         $updAvatar = $mysqli->prepare('UPDATE users SET avatar = ? WHERE id = ?');
         $uid = (int) $user['id'];
         $updAvatar->bind_param('si', $picture, $uid);

@@ -19,14 +19,40 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-set_exception_handler(function (Throwable $e): void {
-    http_response_code(500);
+if (!defined('ESTATEFLOW_REQUEST_ID')) {
+    try {
+        define('ESTATEFLOW_REQUEST_ID', bin2hex(random_bytes(8)));
+    } catch (Throwable $e) {
+        define('ESTATEFLOW_REQUEST_ID', uniqid('req_', true));
+    }
+}
+
+function request_id(): string
+{
+    return (string) ESTATEFLOW_REQUEST_ID;
+}
+
+function emit_raw_json_error(int $statusCode, string $code, string $message): void
+{
+    http_response_code($statusCode);
     header('Content-Type: application/json; charset=utf-8');
+    header('X-Request-ID: ' . request_id());
     echo json_encode([
-        'ok'    => false,
-        'error' => 'Internal server error',
-    ], JSON_UNESCAPED_UNICODE);
+        'success' => false,
+        'ok' => false,
+        'requestId' => request_id(),
+        'error' => [
+            'code' => $code,
+            'message' => $message,
+        ],
+        'errorCode' => $code,
+        'errorMessage' => $message,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+set_exception_handler(function (Throwable $e): void {
+    emit_raw_json_error(500, 'INTERNAL_ERROR', 'Something went wrong');
 });
 
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
@@ -76,10 +102,101 @@ function send_json(int $statusCode, array $payload): void
 {
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=utf-8');
+    header('X-Request-ID: ' . request_id());
     send_security_headers();
     send_cors_headers();
 
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $success = array_key_exists('success', $payload)
+        ? (bool) $payload['success']
+        : (array_key_exists('ok', $payload) ? (bool) $payload['ok'] : $statusCode < 400);
+
+    $response = [
+        'success' => $success,
+        'ok' => $success,
+        'requestId' => request_id(),
+    ];
+
+    $reserved = [
+        'success' => true,
+        'ok' => true,
+        'data' => true,
+        'error' => true,
+        'errorCode' => true,
+        'errorDetails' => true,
+        'pagination' => true,
+        'meta' => true,
+    ];
+
+    $extras = [];
+    foreach ($payload as $key => $value) {
+        if (!isset($reserved[$key])) {
+            $extras[$key] = $value;
+        }
+    }
+
+    if ($success) {
+        $response['data'] = array_key_exists('data', $payload) ? $payload['data'] : $extras;
+
+        if (isset($payload['pagination'])) {
+            $response['pagination'] = $payload['pagination'];
+            $response['meta'] = array_merge((array) ($payload['meta'] ?? []), [
+                'pagination' => $payload['pagination'],
+            ]);
+        } elseif (isset($payload['meta'])) {
+            $response['meta'] = $payload['meta'];
+        }
+    } else {
+        $code = (string) ($payload['errorCode'] ?? match (true) {
+            $statusCode === 400 => 'BAD_REQUEST',
+            $statusCode === 401 => 'UNAUTHORIZED',
+            $statusCode === 403 => 'FORBIDDEN',
+            $statusCode === 404 => 'NOT_FOUND',
+            $statusCode === 409 => 'CONFLICT',
+            $statusCode === 422 => 'VALIDATION_ERROR',
+            $statusCode === 429 => 'RATE_LIMITED',
+            $statusCode >= 500 => 'INTERNAL_ERROR',
+            default => 'REQUEST_FAILED',
+        });
+
+        $message = 'Something went wrong';
+        $details = $payload['errorDetails'] ?? null;
+
+        if (array_key_exists('error', $payload)) {
+            if (is_string($payload['error'])) {
+                $message = $payload['error'];
+            } elseif (is_array($payload['error'])) {
+                $err = $payload['error'];
+                if (isset($err['code'])) {
+                    $code = (string) $err['code'];
+                }
+                if (isset($err['message']) && is_string($err['message'])) {
+                    $message = $err['message'];
+                }
+                if (array_key_exists('details', $err)) {
+                    $details = $err['details'];
+                }
+            }
+        }
+
+        $response['error'] = [
+            'code' => $code,
+            'message' => $message,
+        ];
+        if ($details !== null) {
+            $response['error']['details'] = $details;
+            $response['errorDetails'] = $details;
+        }
+
+        // Backward-compatible fields consumed by current frontend code.
+        $response['errorCode'] = $code;
+        $response['errorMessage'] = $message;
+    }
+
+    if (!empty($extras)) {
+        $response = array_merge($response, $extras);
+    }
+
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 

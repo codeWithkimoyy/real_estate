@@ -10,6 +10,7 @@ import {
 import { formatPrice, type Agent, type Property, type Neighborhood, type Testimonial } from '../data/philippineData';
 import { getAgents, getProperties, getNeighborhoods, getTestimonials, addFavorite, removeFavorite, getFavorites } from '../lib/api';
 import { isLoggedIn } from '../lib/auth';
+import BrandLogo from '../components/BrandLogo';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -590,7 +591,7 @@ export default function HomePage() {
             <h2 className="text-3xl lg:text-5xl font-display font-bold text-white mb-4">
               What Our Clients Say
             </h2>
-            <p className="text-gray-blue max-w-lg mx-auto">Real stories from real homeowners who trusted EstateFlow.</p>
+            <p className="text-gray-blue max-w-lg mx-auto">Real stories from real homeowners who trusted Brader Real Estate.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-7">
@@ -680,9 +681,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto relative">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-14">
             <div className="md:col-span-1">
-              <Link to="/" className="text-2xl font-display font-bold text-white mb-5 block text-gradient-animate">
-                ESTATEFLOW
-              </Link>
+              <BrandLogo to="/" className="mb-5 text-white" logoClassName="w-11 h-11" textClassName="text-2xl font-display font-bold text-white" />
               <p className="text-gray-blue text-sm leading-relaxed mb-6">
                 Find your dream home in the Philippines. Premium properties, PRC-licensed agents, trusted service.
               </p>
@@ -717,7 +716,7 @@ export default function HomePage() {
             <div>
               <h4 className="text-white font-semibold mb-6 text-sm uppercase tracking-wider">Contact</h4>
               <ul className="space-y-3.5 text-gray-blue text-sm">
-                <li className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center"><Mail className="w-3.5 h-3.5 text-sand/60" /></div> hello@estateflow.ph</li>
+                <li className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center"><Mail className="w-3.5 h-3.5 text-sand/60" /></div> hello@braderrealestate.ph</li>
                 <li className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center"><Search className="w-3.5 h-3.5 text-sand/60" /></div> +63 917 014 2200</li>
                 <li className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center"><MapPin className="w-3.5 h-3.5 text-sand/60" /></div> Makati City, Philippines</li>
               </ul>
@@ -739,7 +738,7 @@ export default function HomePage() {
           </div>
           <div className="pt-8 border-t border-white/[0.06] flex flex-col sm:flex-row justify-between items-center gap-4">
             <p className="text-gray-blue/50 text-sm">
-              © 2026 EstateFlow Philippines. All rights reserved.
+              © 2026 Brader Real Estate Philippines. All rights reserved.
             </p>
             <div className="flex gap-6 text-sm text-gray-blue/50">
               <a href="#" className="hover:text-sand transition-colors duration-300">Privacy Policy</a>

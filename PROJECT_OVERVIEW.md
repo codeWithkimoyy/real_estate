@@ -1,7 +1,7 @@
-# EstateFlow Project Overview
+# Brader Real Estate Project Overview
 
 ## 1) Project Summary
-EstateFlow is a full-stack real estate platform with a React + TypeScript frontend and a PHP + MySQL backend.
+Brader Real Estate is a full-stack real estate platform with a React + TypeScript frontend and a PHP + MySQL backend.
 
 It supports:
 - Public property browsing and search
@@ -390,3 +390,332 @@ Frontend files:
 - src/pages/dashboard/AdminAnalyticsTab.tsx
 - src/pages/dashboard/AdminAuditTab.tsx
 - src/pages/dashboard/AdminSystemTab.tsx
+
+## 13) Detailed Role Behavior and Connections
+
+This section describes how each role behaves in the system, who they directly interact with, what they can do, and what they cannot do based on current frontend RBAC and backend guards.
+
+### Administrator
+Connections:
+- Interacts with all roles: buyer, seller, agent, clerk, and other admins.
+- Receives system notifications for pending listing approvals and verification submissions.
+
+Can do:
+- Full dashboard access (approvals, users, analytics, audit, system, listings, communication, finance).
+- Create listings (auto-approved), approve/reject other users' listings.
+- View all inquiries, appointments, payments, reservations, disputes.
+- Create/update/delete users (except cannot delete own admin account).
+- Verify/reject identity verification for any role.
+- Resolve disputes and process refunds (refund action is admin-only).
+- Access audit logs.
+
+Cannot do:
+- Cannot soft-delete own admin account.
+- Cannot bypass required fields/validation for create/update endpoints.
+
+### Agent
+Connections:
+- Primary interaction with buyers (inquiries, appointments, reservations, payments as property owner).
+- Secondary interaction with admins/clerks for verification and operational approvals.
+
+Can do:
+- Create and manage own listings.
+- View own inquiries (as receiver) and participate in inquiry thread.
+- View/manage appointments where they are the assigned property owner/agent.
+- View reservations tied to properties they own.
+- Update reservation status for properties they own (confirm/cancel/complete under rules).
+- Verify users only when target role is buyer or seller.
+
+Cannot do:
+- Cannot approve/reject listings globally.
+- Cannot create users.
+- Cannot delete users.
+- Cannot verify admins/agents/clerks.
+- Cannot process payment refunds.
+- Cannot update payment status unless they are the seller on that payment.
+
+### Seller
+Connections:
+- Primary interaction with buyers for inquiries, appointments, reservations, and payments.
+- Interaction with admins for listing approval and verification process.
+
+Can do:
+- Create and manage own listings.
+- Receive and respond to inquiries for owned properties.
+- Participate in appointments as property owner.
+- View reservations for owned properties and update reservation status per rules.
+- Receive buyer payment submissions for owned properties.
+- Update payment status for payments where they are the seller.
+
+Cannot do:
+- Cannot approve/reject listings globally.
+- Cannot create users or verify users.
+- Cannot process refunds (admin only).
+- Cannot create payments/reservations/inquiries against own property.
+
+### Buyer
+Connections:
+- Interacts mainly with seller/agent (owner) through inquiries, appointments, reservations, and payments.
+- Interacts with admin/clerk for verification outcomes and dispute outcomes.
+
+Can do:
+- Browse approved listings and property details.
+- Create inquiries, appointments, reservations, and payments for eligible properties.
+- Manage favorites.
+- View own inquiries, appointments, reservations, and payments.
+- Submit verification documents from profile.
+- File disputes and view own disputes.
+
+Cannot do:
+- Cannot create listings.
+- Cannot view all users or manage users.
+- Cannot update payment status/review.
+- Cannot confirm reservation status (active) unless owner/admin performs action.
+- Cannot see non-approved properties unless owner/admin context applies.
+
+### Clerk
+Connections:
+- Interacts with buyers/sellers for verification workflows.
+- Interacts with appointments/inquiries/payments/reservations as operations role.
+- Supports admins with front-desk processing.
+
+Can do:
+- View all inquiries and appointments.
+- Manage appointment statuses.
+- View all payments and update payment statuses.
+- View all reservations (admin/clerk visibility scope).
+- Access user list but limited to buyer/seller targets.
+- Verify/reject only buyer/seller verification requests.
+
+Cannot do:
+- Cannot create users.
+- Cannot delete users.
+- Cannot verify admin/agent/clerk users.
+- Cannot resolve disputes (admin-only patch action).
+- Cannot process refunds (admin-only action).
+
+## 14) End-to-End Interaction Flows (Who Connects to Whom)
+
+### Flow A: Listing lifecycle
+1. Seller/Agent creates listing -> status is pending (admin listings may auto-approve).
+2. Admin reviews pending listing -> approve or reject.
+3. Owner receives notification of listing decision.
+
+### Flow B: Inquiry lifecycle
+1. Buyer sends inquiry on a property (cannot inquire on own property).
+2. Receiver is property owner (seller/agent).
+3. Owner and buyer exchange thread messages.
+4. Admin/clerk can view all inquiries for oversight.
+
+### Flow C: Appointment lifecycle
+1. Buyer requests appointment for a property.
+2. Assigned agent is property owner.
+3. Owner/participant/admin/clerk updates status (pending/confirmed/cancelled/completed).
+4. Counterparty receives status notifications.
+
+### Flow D: Reservation lifecycle
+1. Buyer requests reservation (property must be approved, not self-owned, not already locked).
+2. Property owner (seller/agent) or admin confirms to active.
+3. Owner/admin can cancel; completion handled by authorized roles.
+4. Buyer receives reservation status notifications.
+
+### Flow E: Payment lifecycle
+1. Buyer submits payment to seller for approved property.
+2. Seller/admin/clerk updates payment status.
+3. Buyer receives payment status notification.
+4. Refund path is admin-only and only for completed payments.
+
+### Flow F: Verification lifecycle
+1. Buyer/Seller/Agent/Clerk submits verification document via profile.
+2. Admin receives verification request notifications.
+3. Admin may verify/reject anyone.
+4. Agent/Clerk may verify/reject only buyer/seller.
+5. User receives verification result notification.
+
+### Flow G: Dispute lifecycle
+1. Any authenticated user can file dispute.
+2. Admins are notified and investigate.
+3. Admin updates dispute status (investigating/resolved/dismissed).
+4. Reporter receives dispute status update notification.
+
+## 15) Hard Restrictions and Guardrails (Current Implementation)
+
+- Public signup roles are limited to: buyer, seller, agent, clerk.
+- Only seller/agent/administrator can create listings.
+- Non-admin listing creators must be verification_status = verified.
+- Buyers cannot perform actions against their own properties (inquiry/payment/reservation guards).
+- Reservation and payment creation enforce reservation lock checks.
+- User management endpoint is accessible only to administrator/agent/clerk, with create/delete restricted to admin.
+- Clerk visibility in users list is restricted to buyer and seller records.
+- Audit log endpoint is admin-only.
+- Dispute resolution (PATCH) is admin-only.
+- Reservation delete is admin-only.
+- Payment refund action is admin-only.
+- Session/token lifecycle and rate limits are enforced centrally in helpers.
+
+## 16) Platform Hardening Priorities (Critical Improvements)
+
+These are high-impact improvements needed to move from a strong project to production-grade platform reliability.
+
+### 16.1 Backend Error Handling (Highest Priority)
+
+Current risk:
+- Frontend occasionally receives HTML/PHP errors (`unexpected <`) instead of JSON.
+
+Required standard:
+```json
+{
+  "success": false,
+  "error": {
+	 "code": "INTERNAL_ERROR",
+	 "message": "Something went wrong"
+  }
+}
+```
+
+Action plan:
+1. Implement one global error responder used by all endpoints.
+2. Force all exceptions and PHP errors through that responder.
+3. Disable raw PHP error output in API responses for non-dev environments.
+4. Add request ID and structured server logging for debugging.
+
+Acceptance criteria:
+- No endpoint returns HTML on failure.
+- All 4xx/5xx responses match one JSON error envelope.
+
+### 16.2 Migration Versioning System
+
+Current risk:
+- Manual schema alignment can drift between machines/environments.
+
+Action plan:
+1. Create a `migrations` table (id, name, checksum, executed_at).
+2. Track executed SQL migration files in order.
+3. Add a migration runner script (`php migrate.php`) with:
+	- pending migration discovery
+	- transactional execution where applicable
+	- success/failure output
+4. Add optional rollback metadata for reversible migrations.
+
+Acceptance criteria:
+- Running `php migrate.php` on any environment yields deterministic DB state.
+- Re-running migrations is idempotent (already-applied scripts are skipped).
+
+### 16.3 API Response Standardization
+
+Current risk:
+- Inconsistent response shapes increase frontend parsing complexity and bugs.
+
+Required response envelopes:
+
+Success:
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+Failure:
+```json
+{
+  "success": false,
+  "error": {
+	 "code": "VALIDATION_ERROR",
+	 "message": "Invalid input",
+	 "details": {}
+  }
+}
+```
+
+Action plan:
+1. Introduce shared helpers for success/error envelopes.
+2. Refactor all API files to use standardized wrappers.
+3. Keep pagination metadata in a consistent `meta` object.
+
+Acceptance criteria:
+- Frontend `api.ts` can use one common parser path for all endpoints.
+
+### 16.4 Monolithic PHP Growth Risk
+
+Current risk:
+- Resource files will become harder to maintain as business rules grow.
+
+Recommended phased evolution:
+1. Phase 1 (now): Add internal layering without framework migration:
+	- `services/` for business logic
+	- `repositories/` for DB access
+	- keep existing endpoint files as thin controllers
+2. Phase 2 (future): Evaluate framework migration when team/product scale demands it:
+	- Laravel (full-featured)
+	- Slim/Lumen-style lightweight architecture
+
+Acceptance criteria:
+- Endpoint files primarily validate input + call service methods.
+
+### 16.5 Missing Real-Time Layer
+
+Current risk:
+- Inquiries/notifications are polling-heavy and less responsive.
+
+Upgrade path:
+1. Short-term: Server-Sent Events (SSE) for notifications.
+2. Mid-term: WebSocket gateway (Pusher, Socket.IO, or framework-native option).
+
+First targets:
+- inquiry threads/messages
+- notification badge updates
+- appointment/payment status updates
+
+Acceptance criteria:
+- New events appear in UI without manual refresh/poll wait cycle.
+
+### 16.6 Dashboard Frontend Scaling Risk
+
+Current risk:
+- `DashboardPage.tsx` is role-dense and will become difficult to evolve safely.
+
+Action plan:
+1. Split dashboard by role modules:
+	- `src/pages/dashboard/buyer/*`
+	- `src/pages/dashboard/admin/*`
+	- `src/pages/dashboard/clerk/*`
+	- `src/pages/dashboard/shared/*`
+2. Keep shared table, filters, cards, and status chips in reusable components.
+
+Acceptance criteria:
+- Role-specific logic is isolated and easier to test/review.
+
+### 16.7 Testing Gap (Major)
+
+Current risk:
+- RBAC and finance/reservation logic can regress silently.
+
+Minimum test coverage to add:
+1. Auth tests:
+	- login/refresh/logout/forgot/reset
+2. RBAC tests:
+	- role permissions per endpoint
+	- forbidden access checks (403)
+3. Reservation/payment edge cases:
+	- self-action blocking
+	- lock conflicts
+	- refund constraints
+4. Verification workflow tests:
+	- submit -> review -> approve/reject
+
+Suggested tools:
+- PHPUnit for backend endpoint tests
+- Postman/Newman collections for API contract regression
+
+Acceptance criteria:
+- CI runs role-sensitive API tests on every change.
+
+## 17) Strategic Positioning
+
+EstateFlow already operates as a mini property marketplace SaaS architecture with:
+- role-aware operations
+- transaction-like domain workflows (reservations/payments/disputes)
+- governance features (audit + verification)
+
+With the hardening priorities above, the system can move from portfolio/thesis quality to startup-ready production baseline.

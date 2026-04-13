@@ -48,7 +48,7 @@ CREATE TABLE users (
   phone         VARCHAR(40)   NOT NULL,
   password_hash VARCHAR(255)  NOT NULL,
   user_type     ENUM('administrator','agent','seller','buyer','clerk') NOT NULL DEFAULT 'buyer',
-  avatar        VARCHAR(255)  NULL,
+  avatar        VARCHAR(1024) NULL,
   bio           TEXT          NULL,
   verification_status ENUM('unverified','pending','verified','rejected') NOT NULL DEFAULT 'unverified',
   verification_document VARCHAR(255) NULL,

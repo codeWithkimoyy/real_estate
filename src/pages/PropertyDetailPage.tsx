@@ -714,7 +714,7 @@ export default function PropertyDetailPage() {
                         <div className="bg-gradient-to-r from-[#D4A574] to-[#c99660] px-6 py-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <h3 className="text-navy font-bold text-lg">EstateFlow Realty</h3>
+                              <h3 className="text-navy font-bold text-lg">Brader Real Estate Realty</h3>
                               <p className="text-navy/70 text-xs">Walk-In Payment Appointment</p>
                             </div>
                             <div className="w-10 h-10 bg-navy/10 rounded-lg flex items-center justify-center">
@@ -754,7 +754,7 @@ export default function PropertyDetailPage() {
                                 </div>
                                 <div>
                                   <p className="text-white text-sm font-medium">Email</p>
-                                  <p className="text-gray-blue text-xs">payments@estateflow.ph</p>
+                                  <p className="text-gray-blue text-xs">payments@braderrealestate.ph</p>
                                 </div>
                               </div>
                               <div className="flex items-start gap-3">
@@ -763,7 +763,7 @@ export default function PropertyDetailPage() {
                                 </div>
                                 <div>
                                   <p className="text-white text-sm font-medium">Website</p>
-                                  <p className="text-gray-blue text-xs">www.estateflow.ph</p>
+                                  <p className="text-gray-blue text-xs">www.braderrealestate.ph</p>
                                 </div>
                               </div>
                             </div>
@@ -893,7 +893,7 @@ export default function PropertyDetailPage() {
                                       propertyId: property.id,
                                       appointmentDate: walkInDate,
                                       appointmentTime: walkInTime,
-                                      notes: `Walk-in payment – Cash at EstateFlow office`,
+                                      notes: `Walk-in payment – Cash at Brader Real Estate office`,
                                       appointmentType: 'walk_in_payment',
                                     });
                                     const auth = getStoredAuth();
@@ -978,7 +978,7 @@ export default function PropertyDetailPage() {
                           <div ref={walkInReceiptRef}>
                             <div className="receipt">
                               <div className="header" style={{ textAlign: 'center', borderBottom: '2px dashed rgba(255,255,255,0.1)', paddingBottom: '16px', marginBottom: '16px' }}>
-                                <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>EstateFlow Realty</h1>
+                                <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Brader Real Estate Realty</h1>
                                 <p style={{ color: '#999', fontSize: '12px', margin: 0 }}>Walk-In Payment Appointment Confirmation</p>
                               </div>
                               <div style={{ marginTop: '16px' }}>
@@ -1024,7 +1024,7 @@ export default function PropertyDetailPage() {
                           {[
                             { step: 1, title: 'Select Your Preferred Schedule', desc: 'Pick a date and time above during business hours.' },
                             { step: 2, title: 'Submit Appointment', desc: 'Click submit to notify the seller/agent of your walk-in visit.' },
-                            { step: 3, title: 'Visit the Office', desc: 'Go to the EstateFlow Realty office at your scheduled time.' },
+                            { step: 3, title: 'Visit the Office', desc: 'Go to the Brader Real Estate Realty office at your scheduled time.' },
                             { step: 4, title: 'Bring Valid ID & Payment', desc: 'Present a valid government ID and pay the amount in cash.' },
                             { step: 5, title: 'Get Your Official Receipt', desc: 'The cashier will issue an official receipt confirming your payment.' },
                           ].map((s) => (
@@ -1226,7 +1226,7 @@ export default function PropertyDetailPage() {
                       <div ref={receiptRef}>
                         <div className="receipt">
                           <div className="header">
-                            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>EstateFlow</h1>
+                            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Brader Real Estate</h1>
                             <p style={{ color: '#999', fontSize: '12px', margin: 0 }}>Payment Receipt</p>
                           </div>
                           <div style={{ marginTop: '16px' }}>

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
 import { uploadFile } from '../lib/api';
 
@@ -24,7 +24,12 @@ export default function ImageUpload({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPreviewError(false);
+  }, [value]);
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -72,12 +77,13 @@ export default function ImageUpload({
 
       <div className="flex items-center gap-4">
         {/* Preview */}
-        {value ? (
+        {value && !previewError ? (
           <div className={`relative group ${previewSize} shrink-0`}>
             <img
               src={value}
               alt="Preview"
               className={`${previewSize} ${roundCls} object-cover ring-2 ring-white/10`}
+              onError={() => setPreviewError(true)}
             />
             <button
               type="button"

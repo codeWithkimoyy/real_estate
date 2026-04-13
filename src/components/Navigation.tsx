@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { X, Menu, Search, Heart, Home, Building2, Users, DollarSign, LayoutDashboard, LogIn, UserPlus, LogOut } from 'lucide-react';
 import { getStoredAuth, isLoggedIn, logoutUser, subscribeAuthChange } from '../lib/auth';
 import { roleHasPermission } from '../lib/rbac';
+import BrandLogo from './BrandLogo';
 
 const navIcons: Record<string, typeof Home> = {
   Home, Listings: Building2, Agents: Users, 'Sell Your Home': DollarSign, Dashboard: LayoutDashboard,
@@ -69,7 +70,7 @@ export default function Navigation() {
         className="fixed top-0 left-0 right-0 z-[100] bg-navy/90 backdrop-blur-md border-b border-white/[0.06] shadow-lg shadow-black/10"
       >
         <div className="flex items-center justify-between px-6 lg:px-[4vw] py-4">
-          <Link to="/" className="text-xl font-display font-bold text-gradient-animate tracking-tight">ESTATEFLOW</Link>
+          <BrandLogo to="/" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
           <div className="flex items-center gap-4">
             <Link to="/listings" className="hidden sm:flex items-center gap-2 text-gray-blue hover:text-white transition-colors">
               <Search className="w-5 h-5" />
@@ -99,12 +100,7 @@ export default function Navigation() {
       >
         <div className="flex items-center justify-between px-6 lg:px-[4vw] py-3.5">
           {/* Logo */}
-          <Link 
-            to="/" 
-            className="text-xl font-display font-bold text-gradient-animate tracking-tight"
-          >
-            ESTATEFLOW
-          </Link>
+          <BrandLogo to="/" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
 
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center gap-8">
@@ -204,9 +200,13 @@ export default function Navigation() {
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.06]">
-          <Link to="/" className="text-lg font-display font-bold text-gradient-animate tracking-tight" onClick={() => setIsMenuOpen(false)}>
-            ESTATEFLOW
-          </Link>
+          <BrandLogo
+            to="/"
+            className="group"
+            logoClassName="w-9 h-9"
+            textClassName="text-lg font-display font-bold text-gradient-animate tracking-tight"
+            onClick={() => setIsMenuOpen(false)}
+          />
           <button onClick={() => setIsMenuOpen(false)} className="p-2 rounded-lg text-gray-blue hover:text-white hover:bg-white/10 transition-all group">
             <X className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
           </button>
@@ -270,7 +270,7 @@ export default function Navigation() {
 
         {/* Contact Info */}
         <div className="px-6 py-4 border-t border-white/[0.06] text-center">
-          <p className="text-gray-blue text-xs mb-1">hello@estateflow.ph</p>
+          <p className="text-gray-blue text-xs mb-1">hello@braderrealestate.ph</p>
           <p className="text-gray-blue text-xs">+63 917 014 2200</p>
         </div>
       </aside>

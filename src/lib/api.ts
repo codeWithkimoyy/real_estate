@@ -28,10 +28,33 @@ const API = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API).replace(/\/$/, ''
 // ── Helpers ───────────────────────────────────────────────
 
 interface ApiResult<T = unknown> {
+  success?: boolean;
   ok: boolean;
   data?: T;
+  meta?: Record<string, unknown>;
   pagination?: PaginationMeta;
-  error?: string;
+  error?: string | { code?: string; message?: string; details?: unknown };
+  errorCode?: string;
+  errorMessage?: string;
+  errorDetails?: unknown;
+}
+
+function isApiSuccess(result: ApiResult<unknown>): boolean {
+  if (typeof result.success === 'boolean') return result.success;
+  return !!result.ok;
+}
+
+function getApiErrorMessage(result: ApiResult<unknown>, status: number): string {
+  if (typeof result.error === 'string' && result.error.trim()) {
+    return result.error;
+  }
+  if (result.error && typeof result.error === 'object' && typeof result.error.message === 'string' && result.error.message.trim()) {
+    return result.error.message;
+  }
+  if (typeof result.errorMessage === 'string' && result.errorMessage.trim()) {
+    return result.errorMessage;
+  }
+  return `Request failed (${status})`;
 }
 
 async function parseApiResult<T>(response: Response): Promise<ApiResult<T>> {
@@ -63,8 +86,8 @@ async function request<T>(
   });
 
   const json = await parseApiResult<T>(response);
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error ?? `Request failed (${response.status})`);
+  if (!response.ok || !isApiSuccess(json)) {
+    throw new Error(getApiErrorMessage(json, response.status));
   }
   return json.data as T;
 }
@@ -86,8 +109,8 @@ async function paginatedRequest<T>(
   });
 
   const json = await parseApiResult<T[]>(response);
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error ?? `Request failed (${response.status})`);
+  if (!response.ok || !isApiSuccess(json)) {
+    throw new Error(getApiErrorMessage(json, response.status));
   }
   return {
     items: (json.data ?? []) as T[],
@@ -536,8 +559,8 @@ export async function getNotifications(params?: {
     headers: { 'Content-Type': 'application/json', ...authHeader() },
   });
   const json = (await response.json()) as ApiResult<Notification[]> & { unreadCount?: number };
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error ?? `Request failed (${response.status})`);
+  if (!response.ok || !isApiSuccess(json)) {
+    throw new Error(getApiErrorMessage(json, response.status));
   }
   return {
     items: (json.data ?? []) as Notification[],
@@ -562,6 +585,42 @@ export async function markAllNotificationsRead(): Promise<void> {
 
 export async function deleteNotification(id: number): Promise<void> {
   await request<null>(`notifications.php?id=${id}`, { method: 'DELETE' });
+}
+
+export interface NotificationStreamPayload {
+  unreadCount: number;
+  latest: {
+    id: number;
+    type: string;
+    title: string;
+    message: string;
+    createdAt: string;
+  } | null;
+}
+
+export function subscribeNotificationStream(
+  onData: (payload: NotificationStreamPayload) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const streamUrl = `${API}/notifications-stream.php`;
+  const source = new EventSource(streamUrl, { withCredentials: true });
+
+  source.addEventListener('notifications', (event) => {
+    try {
+      const parsed = JSON.parse((event as MessageEvent).data) as ApiResult<NotificationStreamPayload>;
+      if (isApiSuccess(parsed) && parsed.data) {
+        onData(parsed.data);
+      }
+    } catch {
+      // Ignore malformed stream chunks and continue.
+    }
+  });
+
+  if (onError) {
+    source.addEventListener('error', onError);
+  }
+
+  return source;
 }
 
 // ── Disputes ──────────────────────────────────────────────
@@ -620,9 +679,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
     body: formData,
   });
 
-  const json = (await response.json()) as { ok: boolean; data?: UploadResult; error?: string };
-  if (!response.ok || !json.ok) {
-    throw new Error(json.error ?? `Upload failed (${response.status})`);
+  const json = (await response.json()) as ApiResult<UploadResult>;
+  if (!response.ok || !isApiSuccess(json)) {
+    throw new Error(getApiErrorMessage(json, response.status));
   }
   return json.data as UploadResult;
 }
