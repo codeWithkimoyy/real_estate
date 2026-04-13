@@ -7,8 +7,8 @@ import {
   Bed, Bath, Square, Heart, Star, CheckCircle, Mail, AlertCircle,
   Sparkles, Shield, Clock, ChevronRight,
 } from 'lucide-react';
-import { formatPrice, type Agent, type Property, type Neighborhood, type Testimonial, type MarketInsights } from '../data/philippineData';
-import { getAgents, getProperties, getNeighborhoods, getTestimonials, getMarketInsights, addFavorite, removeFavorite, getFavorites } from '../lib/api';
+import { formatPrice, type Agent, type Property, type Neighborhood, type Testimonial } from '../data/philippineData';
+import { getAgents, getProperties, getNeighborhoods, getTestimonials, addFavorite, removeFavorite, getFavorites } from '../lib/api';
 import { isLoggedIn } from '../lib/auth';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -35,37 +35,6 @@ function Particles({ count = 30 }: { count?: number }) {
   );
 }
 
-/* ── Animated counter ───────────────────────────────────── */
-function AnimatedNumber({ value, suffix = '' }: { value: number | string; suffix?: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const animated = useRef(false);
-
-  useEffect(() => {
-    if (!ref.current || animated.current) return;
-    const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(num)) { ref.current.textContent = String(value); return; }
-
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !animated.current) {
-        animated.current = true;
-        gsap.fromTo(ref.current, { textContent: 0 }, {
-          textContent: num,
-          duration: 2,
-          ease: 'power2.out',
-          snap: { textContent: 1 },
-          onUpdate() { if (ref.current) ref.current.textContent = Math.round(parseFloat(ref.current.textContent ?? '0')).toLocaleString(); },
-        });
-        observer.disconnect();
-      }
-    }, { threshold: 0.5 });
-
-    observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [value]);
-
-  return <><span ref={ref}>0</span>{suffix}</>;
-}
-
 export default function HomePage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -75,7 +44,6 @@ export default function HomePage() {
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info'>('success');
   const [neighborhoods, setNeighborhoods] = useState<Neighborhood[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
-  const [marketInsights, setMarketInsights] = useState<MarketInsights>({ avgDaysOnMarket: 0, priceTrend: 0, newListingsThisWeek: 0, totalActiveListings: 0, avgPricePerSqm: 0 });
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const heroRef = useRef<HTMLDivElement>(null);
   const featuredRef = useRef<HTMLDivElement>(null);
@@ -83,7 +51,6 @@ export default function HomePage() {
   const neighborhoodsRef = useRef<HTMLDivElement>(null);
   const agentsRef = useRef<HTMLDivElement>(null);
   const testimonialsRef = useRef<HTMLDivElement>(null);
-  const insightsRef = useRef<HTMLDivElement>(null);
   const newsletterRef = useRef<HTMLDivElement>(null);
 
   // Track mouse for parallax effects on hero
@@ -98,18 +65,16 @@ export default function HomePage() {
   useEffect(() => {
     const loadHomeData = async () => {
       try {
-        const [propertiesData, agentsData, neighborhoodsData, testimonialsData, marketInsightsData] = await Promise.all([
+        const [propertiesData, agentsData, neighborhoodsData, testimonialsData] = await Promise.all([
           getProperties({ status: 'approved' }),
           getAgents(),
           getNeighborhoods(),
           getTestimonials(),
-          getMarketInsights(),
         ]);
         setProperties(propertiesData.items);
         setAgents(agentsData);
         setNeighborhoods(neighborhoodsData);
         setTestimonials(testimonialsData);
-        setMarketInsights(marketInsightsData);
 
         if (isLoggedIn()) {
           try {
@@ -195,11 +160,6 @@ export default function HomePage() {
       animateIfExists('.testimonial-card', { opacity: 0, x: 50, scale: 0.95 }, {
         opacity: 1, x: 0, scale: 1, duration: 0.7, stagger: 0.15, ease: 'power3.out',
         scrollTrigger: { trigger: testimonialsRef.current, start: 'top 80%' },
-      });
-
-      animateIfExists('.insight-card', { opacity: 0, y: 30, scale: 0.9 }, {
-        opacity: 1, y: 0, scale: 1, duration: 0.6, stagger: 0.1, ease: 'back.out(1.5)',
-        scrollTrigger: { trigger: insightsRef.current, start: 'top 80%' },
       });
 
       gsap.fromTo('.newsletter-content', { opacity: 0, y: 50 }, {
@@ -660,46 +620,6 @@ export default function HomePage() {
                     <p className="text-gray-blue text-xs">{testimonial.role}</p>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════
-          MARKET INSIGHTS — Animated counters
-         ═══════════════════════════════════════════════════ */}
-      <section ref={insightsRef} className="relative py-28 lg:py-36 px-6 lg:px-[4vw] overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0d1f35] via-[#0A2540] to-[#081729]" />
-        <div className="absolute bottom-0 left-0 right-0 section-divider" />
-        <div className="absolute top-0 left-0 right-0 section-divider" />
-
-        <div className="max-w-7xl mx-auto relative">
-          <div className="section-title text-center mb-16">
-            <span className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-sand/10 text-sand text-xs font-semibold uppercase tracking-wider mb-5 border border-sand/10">
-              <TrendingUp className="w-3.5 h-3.5" /> Data
-            </span>
-            <h2 className="text-3xl lg:text-5xl font-display font-bold text-white mb-4">
-              Philippine Market Insights
-            </h2>
-            <p className="text-gray-blue max-w-lg mx-auto">Stay informed with the latest real estate trends and statistics.</p>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-7">
-            {[
-              { label: 'Avg Days on Market', value: marketInsights.avgDaysOnMarket, suffix: ' days', color: 'from-blue-500/10 to-blue-600/5', icon: Clock },
-              { label: 'Price Trend (YoY)', value: marketInsights.priceTrend, suffix: '%', prefix: '+', color: 'from-green-500/10 to-green-600/5', icon: TrendingUp },
-              { label: 'New Listings', value: marketInsights.newListingsThisWeek, suffix: ' this week', color: 'from-sand/10 to-sand/5', icon: Home },
-              { label: 'Active Listings', value: marketInsights.totalActiveListings, suffix: '', color: 'from-purple-500/10 to-purple-600/5', icon: Sparkles },
-            ].map((insight) => (
-              <div key={insight.label} className="insight-card glass-card rounded-2xl p-7 lg:p-8 text-center hover:bg-white/[0.06] transition-all duration-500 hover:-translate-y-3 group stat-glow border border-transparent hover:border-white/[0.06]">
-                <div className={`w-14 h-14 mx-auto mb-5 bg-gradient-to-br ${insight.color} rounded-xl flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform duration-500`}>
-                  <insight.icon className="w-6 h-6 text-sand" />
-                </div>
-                <span className="text-3xl lg:text-4xl font-display font-bold text-sand block">
-                  {insight.prefix ?? ''}<AnimatedNumber value={insight.value} />{insight.suffix}
-                </span>
-                <p className="text-gray-blue text-sm mt-2">{insight.label}</p>
               </div>
             ))}
           </div>

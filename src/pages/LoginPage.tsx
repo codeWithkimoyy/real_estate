@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Home, Sparkles, X, UserPlus } from 'lucide-react';
 import { loginUser, loginWithGoogle, completeGoogleRegister } from '../lib/auth';
-import type { GoogleNeedsRole } from '../lib/auth';
 import { PUBLIC_SIGNUP_ROLES, ROLE_LABELS } from '../lib/rbac';
 import type { UserRole } from '../lib/rbac';
 import gsap from 'gsap';

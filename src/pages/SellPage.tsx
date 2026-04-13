@@ -1,4 +1,4 @@
-import { Upload, Image as ImageIcon, Loader2, CheckCircle, AlertCircle, ShieldCheck, ArrowLeft, LogIn, LayoutDashboard } from 'lucide-react';
+import { Upload, Image as ImageIcon, Loader2, CheckCircle, AlertCircle, ShieldCheck, ArrowLeft, LogIn, LayoutDashboard, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createProperty, uploadFile, getProfile } from '../lib/api';
