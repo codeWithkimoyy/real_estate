@@ -18,6 +18,27 @@ main {
   overflow-x: hidden;
 }
 
+.app-shell {
+  isolation: isolate;
+}
+
+.route-fade {
+  animation: routeFadeIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes routeFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
 /* Line clamp utilities */
 .line-clamp-1 {
   display: -webkit-box;
@@ -102,11 +123,18 @@ select {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
+  color: #FFFFFF;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23A8B8C8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 16px;
   padding-right: 40px;
+}
+
+select option,
+select optgroup {
+  color: #0A2540;
+  background-color: #F6F7F9;
 }
 
 /* Focus styles */
@@ -212,7 +240,7 @@ select {
 
 /* Interactive card effects */
 .card-3d {
-  transition: transform 0.4s ease, box-shadow 0.4s ease;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   transform-style: preserve-3d;
 }
 .card-3d:hover {
@@ -237,7 +265,7 @@ select {
 
 /* Magnetic button effect */
 .btn-magnetic {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1);
   position: relative;
   overflow: hidden;
 }
@@ -247,7 +275,7 @@ select {
   inset: 0;
   background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.15), transparent 70%);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.28s ease;
 }
 .btn-magnetic:hover::after { opacity: 1; }
 .btn-magnetic:hover {
@@ -303,10 +331,19 @@ select {
 
 /* Glassmorphism card */
 .glass-card {
-  background: rgba(255,255,255,0.04);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.08);
+  background:
+    linear-gradient(170deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 45%, rgba(255,255,255,0.03)),
+    rgba(9, 29, 49, 0.58);
+  backdrop-filter: blur(20px) saturate(135%);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: border-color 0.3s ease, box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s ease;
+}
+
+.glass-card:hover {
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.12);
 }
 
 /* Spotlight cursor follow effect */

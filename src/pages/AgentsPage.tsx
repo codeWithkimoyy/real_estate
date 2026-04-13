@@ -68,12 +68,12 @@ export default function AgentsPage() {
   useEffect(() => {
     if (!agents.length) return;
     const ctx = gsap.context(() => {
-      gsap.fromTo('.agent-header', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' });
+      gsap.fromTo('.agent-header', { opacity: 0.9, y: -8 }, { opacity: 1, y: 0, duration: 0.36, ease: 'power2.out' });
       gsap.fromTo(
         '.agent-card',
-        { opacity: 0, y: 40, rotateY: -5 },
+        { opacity: 0.88, y: 18, rotateY: -2 },
         {
-          opacity: 1, y: 0, rotateY: 0, duration: 0.7, stagger: 0.1, ease: 'power3.out',
+          opacity: 1, y: 0, rotateY: 0, duration: 0.45, stagger: 0.07, ease: 'power3.out',
           scrollTrigger: { trigger: gridRef.current, start: 'top 80%' },
         },
       );

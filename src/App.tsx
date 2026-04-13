@@ -20,42 +20,47 @@ function ScrollToTop() {
   return null;
 }
 
+function AppShell() {
+  const location = useLocation();
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+
+  return (
+    <div className="relative min-h-screen app-shell">
+      {/* Grain Overlay */}
+      <div className="grain-overlay" />
+
+      {/* Navigation - hidden on auth pages */}
+      {!isAuthPage ? <Navigation /> : null}
+
+      {/* Main Content */}
+      <main className="relative">
+        <Routes location={location}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/listings" element={<ListingsPage />} />
+          <Route path="/property/:id" element={<PropertyDetailPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route
+            path="/dashboard"
+            element={(
+              <ProtectedRoute requiredPermission="view_dashboard">
+                <DashboardPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route path="/sell" element={<SellPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
 function App() {
   return (
     <Router>
       <ScrollToTop />
-      <div className="relative min-h-screen">
-        {/* Grain Overlay */}
-        <div className="grain-overlay" />
-        
-        {/* Navigation - hidden on auth pages */}
-        <Routes>
-          <Route path="/login" element={null} />
-          <Route path="/register" element={null} />
-          <Route path="*" element={<Navigation />} />
-        </Routes>
-
-        {/* Main Content */}
-        <main className="relative">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/listings" element={<ListingsPage />} />
-            <Route path="/property/:id" element={<PropertyDetailPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route
-              path="/dashboard"
-              element={(
-                <ProtectedRoute requiredPermission="view_dashboard">
-                  <DashboardPage />
-                </ProtectedRoute>
-              )}
-            />
-            <Route path="/sell" element={<SellPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-          </Routes>
-        </main>
-      </div>
+      <AppShell />
     </Router>
   );
 }

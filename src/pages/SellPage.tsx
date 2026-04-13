@@ -115,12 +115,13 @@ const INITIAL = {
 
 export default function SellPage() {
   const navigate = useNavigate();
+  const cachedVerification = sessionStorage.getItem('estateflow-sell-verification-status');
   const [form, setForm] = useState(INITIAL);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ ok: boolean; text: string } | null>(null);
-  const [verificationStatus, setVerificationStatus] = useState<string | null>(null);
-  const [checkingVerification, setCheckingVerification] = useState(true);
+  const [verificationStatus, setVerificationStatus] = useState<string | null>(cachedVerification);
+  const [checkingVerification, setCheckingVerification] = useState(!cachedVerification);
 
   const loggedIn = isLoggedIn();
   const role = getStoredAuth()?.user.role;
@@ -134,6 +135,7 @@ export default function SellPage() {
       try {
         const profile = await getProfile();
         setVerificationStatus(profile.verificationStatus);
+        sessionStorage.setItem('estateflow-sell-verification-status', profile.verificationStatus);
       } catch { setVerificationStatus('unverified'); }
       setCheckingVerification(false);
     };

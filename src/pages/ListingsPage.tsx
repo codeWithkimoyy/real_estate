@@ -58,12 +58,12 @@ export default function ListingsPage() {
 
     const ctx = gsap.context(() => {
       gsap.fromTo('.listing-card',
-        { opacity: 0, y: 30, rotateY: -3 },
+        { opacity: 0.88, y: 14, rotateY: -1 },
         {
           opacity: 1,
           y: 0,
           rotateY: 0,
-          duration: 0.6,
+          duration: 0.42,
           stagger: 0.06,
           ease: 'power3.out',
           scrollTrigger: {
@@ -152,7 +152,7 @@ export default function ListingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-navy pt-20 relative overflow-hidden page-enter">
+    <div className="min-h-screen bg-navy pt-20 relative overflow-hidden">
       {/* Background particles */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         {Array.from({ length: 12 }).map((_, i) => (
