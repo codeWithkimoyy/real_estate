@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, Home, CheckCircle, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, Home, CheckCircle, Sparkles, LogIn, ArrowLeft } from 'lucide-react';
 import { registerUser } from '../lib/auth';
 import { PUBLIC_SIGNUP_ROLES, ROLE_LABELS, type UserRole } from '../lib/rbac';
 import gsap from 'gsap';
@@ -422,8 +422,9 @@ export default function RegisterPage() {
                 <button 
                   type="button"
                   onClick={() => setStep(1)}
-                  className="flex-1 py-3.5 glass-card rounded-xl text-white hover:bg-white/[0.06] transition-all font-medium"
+                  className="flex-1 py-3.5 glass-card rounded-xl text-white hover:bg-white/[0.06] transition-all font-medium inline-flex items-center justify-center gap-2"
                 >
+                  <ArrowLeft className="w-4 h-4" />
                   Back
                 </button>
                 <button 
@@ -446,7 +447,8 @@ export default function RegisterPage() {
           {/* Login Link */}
           <p className="mt-8 text-center text-gray-blue">
             Already have an account?{' '}
-            <Link to="/login" className="text-sand hover:text-white transition-colors font-medium">
+            <Link to="/login" className="inline-flex items-center gap-1.5 text-sand hover:text-white transition-colors font-medium">
+              <LogIn className="w-4 h-4" />
               Sign in
             </Link>
           </p>

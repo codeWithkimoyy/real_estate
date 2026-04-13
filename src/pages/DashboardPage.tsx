@@ -300,7 +300,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Link to="/listings" className="px-3 py-1.5 text-xs font-medium text-gray-blue hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+                <Link to="/listings" className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-blue hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+                  <Search className="w-3.5 h-3.5" />
                   Browse Listings
                 </Link>
               </div>

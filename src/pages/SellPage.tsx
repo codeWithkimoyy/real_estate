@@ -1,6 +1,6 @@
+import { Upload, Image as ImageIcon, Loader2, CheckCircle, AlertCircle, ShieldCheck, ArrowLeft, LogIn, LayoutDashboard } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { CheckCircle, AlertCircle, ArrowLeft, Upload, X, Loader2, ImageIcon, ShieldCheck } from 'lucide-react';
 import { createProperty, uploadFile, getProfile } from '../lib/api';
 import { isLoggedIn, getStoredAuth } from '../lib/auth';
 
@@ -220,7 +220,8 @@ export default function SellPage() {
             : 'Only sellers and agents can create property listings.'}
         </p>
         {!loggedIn && (
-          <Link to="/login" className="btn-solid px-6 py-3 rounded-lg">
+          <Link to="/login" className="btn-solid px-6 py-3 rounded-lg inline-flex items-center gap-2">
+            <LogIn className="w-4 h-4" />
             Sign In
           </Link>
         )}
@@ -253,7 +254,8 @@ export default function SellPage() {
         ) : (
           <p className="text-gray-blue text-sm mb-6">Submit your verification documents from your profile page.</p>
         )}
-        <Link to="/dashboard" className="btn-solid px-6 py-3 rounded-lg">
+        <Link to="/dashboard" className="btn-solid px-6 py-3 rounded-lg inline-flex items-center gap-2">
+          <LayoutDashboard className="w-4 h-4" />
           Go to Dashboard
         </Link>
       </div>

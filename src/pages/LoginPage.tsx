@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Home, Sparkles, X } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Home, Sparkles, X, UserPlus } from 'lucide-react';
 import { loginUser, loginWithGoogle, completeGoogleRegister } from '../lib/auth';
 import type { GoogleNeedsRole } from '../lib/auth';
 import { PUBLIC_SIGNUP_ROLES, ROLE_LABELS } from '../lib/rbac';
@@ -470,7 +470,8 @@ export default function LoginPage() {
           {/* Register Link */}
           <p className="mt-8 text-center text-gray-blue">
             Don&apos;t have an account?{' '}
-            <Link to="/register" className="text-sand hover:text-white transition-colors font-medium">
+            <Link to="/register" className="inline-flex items-center gap-1.5 text-sand hover:text-white transition-colors font-medium">
+              <UserPlus className="w-4 h-4" />
               Create one
             </Link>
           </p>

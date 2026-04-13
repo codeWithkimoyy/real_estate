@@ -60,6 +60,8 @@ export default function Navigation() {
 
   const isHomePage = location.pathname === '/';
 
+  const getNavIcon = (label: string) => navIcons[label] ?? Home;
+
   /* ── Dashboard pages: slim header only (sidebar lives in DashboardPage) ── */
   if (isDashboardPage) {
     return (
@@ -73,7 +75,10 @@ export default function Navigation() {
               <Search className="w-5 h-5" />
             </Link>
             {loggedIn && (
-              <button onClick={() => { void handleLogout(); }} className="text-gray-blue hover:text-sand text-sm transition-colors font-medium">Sign Out</button>
+              <button onClick={() => { void handleLogout(); }} className="flex items-center gap-2 text-gray-blue hover:text-sand text-sm transition-colors font-medium">
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
             )}
           </div>
         </div>
@@ -104,17 +109,23 @@ export default function Navigation() {
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center gap-8">
             {navItems.map((item) => (
+              (() => {
+                const Icon = getNavIcon(item.label);
+                return (
               <Link
                 key={item.label}
                 to={item.href}
-                className={`relative text-sm tracking-wide transition-all duration-300 link-underline ${
+                className={`relative flex items-center gap-2 text-sm tracking-wide transition-all duration-300 link-underline ${
                   location.pathname === item.href 
                     ? 'text-sand font-medium nav-dot' 
                     : 'text-gray-blue hover:text-white'
                 }`}
               >
+                <Icon className="w-4 h-4" />
                 {item.label}
               </Link>
+                );
+              })()
             ))}
           </nav>
 
@@ -140,22 +151,25 @@ export default function Navigation() {
               {loggedIn ? (
                 <button
                   onClick={() => { void handleLogout(); }}
-                  className="text-gray-blue hover:text-sand text-sm transition-colors font-medium"
+                  className="flex items-center gap-2 text-gray-blue hover:text-sand text-sm transition-colors font-medium"
                 >
+                  <LogOut className="w-4 h-4" />
                   Sign Out
                 </button>
               ) : (
                 <>
                   <Link 
                     to="/login"
-                    className="text-gray-blue hover:text-white text-sm transition-colors font-medium"
+                    className="flex items-center gap-2 text-gray-blue hover:text-white text-sm transition-colors font-medium"
                   >
+                    <LogIn className="w-4 h-4" />
                     Sign In
                   </Link>
                   <Link 
                     to="/register"
-                    className="px-5 py-2.5 bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy text-sm font-semibold rounded-xl hover:shadow-lg hover:shadow-sand/25 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.97]"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy text-sm font-semibold rounded-xl hover:shadow-lg hover:shadow-sand/25 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.97]"
                   >
+                    <UserPlus className="w-4 h-4" />
                     Sign Up
                   </Link>
                 </>
