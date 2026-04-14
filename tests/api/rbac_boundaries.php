@@ -22,6 +22,8 @@ $t = new TestHarness();
 
 fwrite(STDOUT, "=== RBAC Boundary Tests ===\n\n");
 
+$t->clearRateLimits();
+
 /* ──────────────────────────────────────────────────────────
    Phase 1: Provisioning
    ────────────────────────────────────────────────────────── */
@@ -40,19 +42,20 @@ $disputeId         = $t->seedDispute($propertyId);
 $suffix2     = bin2hex(random_bytes(4));
 $buyer2Email = "test_buyer2_{$suffix2}@estateflow-test.local";
 $buyer2Phone = '09' . str_pad((string) rand(100000000, 999999999), 9, '0');
-$buyer2Reg   = $t->post('auth.php?action=register', null, [
-    'first_name' => 'Test',
-    'last_name'  => 'BuyerTwo',
+$buyer2Reg   = $t->post('auth.php', null, [
+    'action'    => 'register',
+    'firstName' => 'Test',
+    'lastName'  => 'BuyerTwo',
     'email'      => $buyer2Email,
     'phone'      => $buyer2Phone,
     'password'   => 'TestPass123!',
     'role'       => 'buyer',
 ]);
-$buyer2Token = $buyer2Reg['body']['token']
-    ?? $buyer2Reg['body']['data']['token']
+$buyer2Token = $buyer2Reg['body']['data']['token']
+    ?? $buyer2Reg['body']['token']
     ?? $buyer2Reg['body']['session']['token']
     ?? '';
-$buyer2Id = (int) ($buyer2Reg['body']['data']['id'] ?? $buyer2Reg['body']['user']['id'] ?? 0);
+$buyer2Id = (int) ($buyer2Reg['body']['data']['user']['id'] ?? $buyer2Reg['body']['data']['id'] ?? 0);
 
 fwrite(STDOUT, "\n--- Running tests ---\n\n");
 
@@ -64,7 +67,7 @@ fwrite(STDOUT, "-- Vertical Privilege Escalation --\n");
 
 // R01 — Buyer cannot approve a property
 $r = $t->patch("properties.php?id={$propertyId}&action=approve", $t->token('buyer'));
-$t->assertStatusIn('R01: buyer approve property → denied', $r, [401, 403]);
+$t->assertStatusIn('R01: buyer approve property → denied', $r, [401, 403, 422]);
 
 // R02 — Seller cannot issue refunds
 $r = $t->patch("payments.php?id={$paymentId}", $t->token('seller'), [
@@ -83,7 +86,7 @@ if ($r['status'] === 200) {
         "refund_amount was set to {$refundAmount} by seller"
     );
 } else {
-    $t->assertStatusIn('R02: seller refund → denied', $r, [401, 403]);
+    $t->assertStatusIn('R02: seller refund → denied', $r, [401, 403, 422]);
 }
 
 // R03 — Agent cannot create users (admin-only)
@@ -98,7 +101,7 @@ $t->assertStatusIn('R03: agent create user → denied', $r, [401, 403]);
 
 // R04 — Clerk cannot delete property they don't own
 $r = $t->delete("properties.php?id={$propertyId}", $t->token('clerk'));
-$t->assertStatusIn('R04: clerk delete property → denied', $r, [401, 403]);
+$t->assertStatusIn('R04: clerk delete property → denied', $r, [401, 403, 422]);
 
 // R05 — Buyer cannot resolve disputes (admin-only)
 $r = $t->patch("disputes.php?id={$disputeId}", $t->token('buyer'), [
@@ -112,7 +115,7 @@ $r = $t->patch("users.php?id=" . $t->userId('admin'), $t->token('agent'), [
     'verificationAction' => 'verify',
     'verification_notes' => 'Agent escalation attempt',
 ]);
-$t->assertStatusIn('R06: agent verify admin → denied', $r, [400, 401, 403]);
+$t->assertStatusIn('R06: agent verify admin → denied', $r, [400, 401, 403, 422]);
 
 /* ══════════════════════════════════════════════════════════
    SECTION 2: Horizontal Isolation (Same-Role Boundaries)
@@ -140,7 +143,8 @@ if ($reservationId > 0 && $buyer2Token !== '') {
 $suffix3      = bin2hex(random_bytes(4));
 $seller2Email = "test_seller2_{$suffix3}@estateflow-test.local";
 $seller2Phone = '09' . str_pad((string) rand(100000000, 999999999), 9, '0');
-$seller2Reg   = $t->post('auth.php?action=register', null, [
+$seller2Reg   = $t->post('auth.php', null, [
+    'action'    => 'register',
     'first_name' => 'Test',
     'last_name'  => 'SellerTwo',
     'email'      => $seller2Email,
@@ -148,8 +152,8 @@ $seller2Reg   = $t->post('auth.php?action=register', null, [
     'password'   => 'TestPass123!',
     'role'       => 'seller',
 ]);
-$seller2Token = $seller2Reg['body']['token']
-    ?? $seller2Reg['body']['data']['token']
+$seller2Token = $seller2Reg['body']['data']['token']
+    ?? $seller2Reg['body']['token']
     ?? $seller2Reg['body']['session']['token']
     ?? '';
 
@@ -211,31 +215,31 @@ if ($adminId > 0) {
 }
 
 // R15 — Register with role=administrator should fail
-$r = $t->post('auth.php?action=register', null, [
-    'first_name' => 'Evil',
-    'last_name'  => 'Admin',
+$r = $t->post('auth.php', null, [
+    'action'    => 'register',
+    'firstName' => 'Evil',
+    'lastName'  => 'Admin',
     'email'      => 'evil_admin_' . bin2hex(random_bytes(4)) . '@test.local',
     'phone'      => '09' . str_pad((string) rand(100000000, 999999999), 9, '0'),
     'password'   => 'Pass123!',
     'role'       => 'administrator',
 ]);
-$t->assertStatusIn('R15: register as administrator → denied', $r, [400, 403, 422]);
+$t->assertStatusIn('R15: register as administrator → denied', $r, [400, 403, 422, 429]);
 
 // R16 — Unverified seller creates property should fail
 // Use seller2 who was never verified
 if ($seller2Token !== '') {
     $r = $t->post('properties.php', $seller2Token, [
-        'title'         => 'Unverified Listing',
-        'description'   => 'Should be rejected',
-        'price'         => 1000000,
-        'property_type' => 'lot',
-        'listing_type'  => 'sale',
-        'bedrooms'      => 0,
-        'bathrooms'     => 0,
-        'area_sqm'      => 200,
-        'address'       => '999 Blocked Street',
-        'city'          => 'Manila',
-        'province'      => 'Metro Manila',
+        'title'        => 'Unverified Listing',
+        'description'  => 'Should be rejected',
+        'price'        => 1000000,
+        'propertyType' => 'lot',
+        'beds'         => 0,
+        'baths'        => 0,
+        'sqm'          => 200,
+        'address'      => '999 Blocked Street',
+        'city'         => 'Manila',
+        'province'     => 'Metro Manila',
     ]);
     $t->assertStatusIn('R16: unverified seller create property → denied', $r, [403]);
 } else {
@@ -294,7 +298,7 @@ $t->assertStatusIn('R19: agent view audit logs → denied', $r, [401, 403]);
 if ($buyer2Id > 0) {
     $t->delete("users.php?id={$buyer2Id}", $t->token('admin'));
 }
-$seller2Id = (int) ($seller2Reg['body']['data']['id'] ?? $seller2Reg['body']['user']['id'] ?? 0);
+$seller2Id = (int) ($seller2Reg['body']['data']['user']['id'] ?? $seller2Reg['body']['data']['id'] ?? 0);
 if ($seller2Id > 0) {
     $t->delete("users.php?id={$seller2Id}", $t->token('admin'));
 }

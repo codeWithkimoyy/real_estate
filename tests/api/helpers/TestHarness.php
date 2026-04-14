@@ -35,6 +35,9 @@ final class TestHarness
 
     public function __construct(?string $baseUrl = null)
     {
+        // Suppress curl_close deprecation noise on PHP 8.5+
+        error_reporting(E_ALL & ~E_DEPRECATED);
+
         $this->baseUrl = rtrim(
             $baseUrl ?? (string) (getenv('API_BASE_URL') ?: 'http://localhost/Activities/real_estate/api'),
             '/'
@@ -192,6 +195,27 @@ final class TestHarness
     /* ─── Provisioning ─────────────────────────────────────── */
 
     /**
+     * Clear rate limit records via direct DB connection.
+     * Call before provisioning when running many registrations.
+     */
+    public function clearRateLimits(): void
+    {
+        $dbHost = getenv('DB_HOST') ?: '127.0.0.1';
+        $dbPort = (int) (getenv('DB_PORT') ?: 3306);
+        $dbName = getenv('DB_NAME') ?: 'real_estate_db';
+        $dbUser = getenv('DB_USER') ?: 'root';
+        $dbPass = getenv('DB_PASS') ?: '';
+
+        $conn = @new \mysqli($dbHost, $dbUser, $dbPass, $dbName, $dbPort);
+        if ($conn->connect_error) {
+            fwrite(STDOUT, "[WARN] Could not clear rate limits: {$conn->connect_error}\n");
+            return;
+        }
+        $conn->query('DELETE FROM rate_limits');
+        $conn->close();
+    }
+
+    /**
      * Register and authenticate all 5 roles.
      * Admin credentials come from env vars; others are freshly registered.
      */
@@ -209,9 +233,9 @@ final class TestHarness
         // Login admin
         $this->tokens['admin'] = $this->loginUser($adminEmail, $adminPass, 'admin');
 
-        // Decode admin user ID from /auth.php?action=me
-        $me = $this->get('auth.php?action=me', $this->tokens['admin']);
-        $this->userIds['admin'] = (int) ($me['body']['data']['id'] ?? $me['body']['user']['id'] ?? 0);
+        // Decode admin user ID from /auth.php (me action)
+        $me = $this->post('auth.php', $this->tokens['admin'], ['action' => 'me']);
+        $this->userIds['admin'] = (int) ($me['body']['data']['user']['id'] ?? $me['body']['data']['id'] ?? 0);
 
         // Register test users for each non-admin role
         $suffix = bin2hex(random_bytes(4));
@@ -219,9 +243,10 @@ final class TestHarness
             $email = "test_{$role}_{$suffix}@estateflow-test.local";
             $phone = '09' . str_pad((string) rand(100000000, 999999999), 9, '0');
 
-            $reg = $this->post('auth.php?action=register', null, [
-                'first_name' => "Test",
-                'last_name'  => ucfirst($role),
+            $reg = $this->post('auth.php', null, [
+                'action'    => 'register',
+                'firstName' => "Test",
+                'lastName'  => ucfirst($role),
                 'email'      => $email,
                 'phone'      => $phone,
                 'password'   => 'TestPass123!',
@@ -235,7 +260,7 @@ final class TestHarness
             }
 
             $this->tokens[$role] = $this->extractToken($reg, $role);
-            $this->userIds[$role] = (int) ($reg['body']['data']['id'] ?? $reg['body']['user']['id'] ?? 0);
+            $this->userIds[$role] = (int) ($reg['body']['data']['user']['id'] ?? $reg['body']['data']['id'] ?? 0);
             $this->cleanupQueue[] = ['resource' => 'user', 'id' => $this->userIds[$role]];
         }
     }
@@ -255,17 +280,16 @@ final class TestHarness
         }
 
         $prop = $this->post('properties.php', $this->tokens['seller'], [
-            'title'         => 'Test Property ' . bin2hex(random_bytes(3)),
-            'description'   => 'Automated test listing',
-            'price'         => 5000000,
-            'property_type' => 'house',
-            'listing_type'  => 'sale',
-            'bedrooms'      => 3,
-            'bathrooms'     => 2,
-            'area_sqm'      => 120,
-            'address'       => '123 Test Street',
-            'city'          => 'Manila',
-            'province'      => 'Metro Manila',
+            'title'        => 'Test Property ' . bin2hex(random_bytes(3)),
+            'description'  => 'Automated test listing',
+            'price'        => 5000000,
+            'propertyType' => 'house',
+            'beds'         => 3,
+            'baths'        => 2,
+            'sqm'          => 120,
+            'address'      => '123 Test Street',
+            'city'         => 'Manila',
+            'province'     => 'Metro Manila',
         ]);
 
         $propId = (int) ($prop['body']['data']['id'] ?? $prop['body']['property']['id'] ?? 0);
@@ -289,17 +313,16 @@ final class TestHarness
     public function seedPendingProperty(): int
     {
         $prop = $this->post('properties.php', $this->tokens['seller'], [
-            'title'         => 'Pending Property ' . bin2hex(random_bytes(3)),
-            'description'   => 'Should not be publicly visible',
-            'price'         => 3000000,
-            'property_type' => 'condo',
-            'listing_type'  => 'sale',
-            'bedrooms'      => 1,
-            'bathrooms'     => 1,
-            'area_sqm'      => 45,
-            'address'       => '456 Hidden Ave',
-            'city'          => 'Quezon City',
-            'province'      => 'Metro Manila',
+            'title'        => 'Pending Property ' . bin2hex(random_bytes(3)),
+            'description'  => 'Should not be publicly visible',
+            'price'        => 3000000,
+            'propertyType' => 'condo',
+            'beds'         => 1,
+            'baths'        => 1,
+            'sqm'          => 45,
+            'address'      => '456 Hidden Ave',
+            'city'         => 'Quezon City',
+            'province'     => 'Metro Manila',
         ]);
         $id = (int) ($prop['body']['data']['id'] ?? $prop['body']['property']['id'] ?? 0);
         $this->seedIds['pending_property'] = $id;
@@ -313,9 +336,9 @@ final class TestHarness
     public function seedReservation(int $propertyId): int
     {
         $res = $this->post('reservations.php', $this->tokens['buyer'], [
-            'property_id'   => $propertyId,
-            'duration_days' => 7,
-            'notes'         => 'Test reservation',
+            'propertyId' => $propertyId,
+            'days'       => 7,
+            'notes'      => 'Test reservation',
         ]);
         $id = (int) ($res['body']['data']['id'] ?? $res['body']['reservation']['id'] ?? 0);
         $this->seedIds['reservation'] = $id;
@@ -329,10 +352,10 @@ final class TestHarness
     public function seedPayment(int $propertyId): int
     {
         $pay = $this->post('payments.php', $this->tokens['buyer'], [
-            'property_id'    => $propertyId,
-            'amount'         => 50000,
-            'payment_method' => 'gcash',
-            'payment_type'   => 'reservation',
+            'propertyId'    => $propertyId,
+            'amount'        => 50000,
+            'paymentMethod' => 'gcash',
+            'paymentType'   => 'reservation',
         ]);
         $id = (int) ($pay['body']['data']['id'] ?? $pay['body']['payment']['id'] ?? 0);
         $this->seedIds['payment'] = $id;
@@ -346,10 +369,10 @@ final class TestHarness
     public function seedDispute(int $propertyId): int
     {
         $dis = $this->post('disputes.php', $this->tokens['buyer'], [
-            'subject'        => 'Test dispute',
-            'description'    => 'Automated test dispute for permission testing',
-            'reference_type' => 'property',
-            'reference_id'   => $propertyId,
+            'resourceType' => 'property',
+            'resourceId'   => $propertyId,
+            'reason'       => 'Test dispute',
+            'description'  => 'Automated test dispute for permission testing',
         ]);
         $id = (int) ($dis['body']['data']['id'] ?? $dis['body']['dispute']['id'] ?? 0);
         $this->seedIds['dispute'] = $id;
@@ -449,7 +472,8 @@ final class TestHarness
 
     private function loginUser(string $email, string $password, string $label): string
     {
-        $res = $this->post('auth.php?action=login', null, [
+        $res = $this->post('auth.php', null, [
+            'action'   => 'login',
             'email'    => $email,
             'password' => $password,
         ]);
@@ -463,8 +487,8 @@ final class TestHarness
 
     private function extractToken(array $response, string $label): string
     {
-        $token = $response['body']['token']
-            ?? $response['body']['data']['token']
+        $token = $response['body']['data']['token']
+            ?? $response['body']['token']
             ?? $response['body']['session']['token']
             ?? '';
         if ($token === '') {
