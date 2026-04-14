@@ -70,7 +70,7 @@ export default function Navigation() {
         className="fixed top-0 left-0 right-0 z-[100] bg-navy/90 backdrop-blur-md border-b border-white/[0.06] shadow-lg shadow-black/10"
       >
         <div className="flex items-center justify-between px-6 lg:px-[4vw] py-4">
-          <BrandLogo to="/" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
+          <BrandLogo to="/" logoClassName="w-16 h-16" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
           <div className="flex items-center gap-4">
             <Link to="/listings" className="hidden sm:flex items-center gap-2 text-gray-blue hover:text-white transition-colors">
               <Search className="w-5 h-5" />
@@ -100,7 +100,7 @@ export default function Navigation() {
       >
         <div className="flex items-center justify-between px-6 lg:px-[4vw] py-3.5">
           {/* Logo */}
-          <BrandLogo to="/" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
+          <BrandLogo to="/" logoClassName="w-20 h-20" textClassName="text-xl font-display font-bold text-gradient-animate tracking-tight" />
 
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center gap-8">
@@ -203,7 +203,7 @@ export default function Navigation() {
           <BrandLogo
             to="/"
             className="group"
-            logoClassName="w-9 h-9"
+            logoClassName="w-10 h-10"
             textClassName="text-lg font-display font-bold text-gradient-animate tracking-tight"
             onClick={() => setIsMenuOpen(false)}
           />

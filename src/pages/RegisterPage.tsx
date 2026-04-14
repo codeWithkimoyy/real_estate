@@ -150,7 +150,7 @@ export default function RegisterPage() {
         <div className="absolute bottom-20 left-20 w-[300px] h-[300px] rounded-full bg-sand/10 blur-[100px] pointer-events-none animate-float-slow" />
 
         <div className="relative z-10 flex flex-col justify-between p-12">
-          <BrandLogo to="/" className="text-white group" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate" />
+          <BrandLogo to="/" className="text-white group" logoClassName="w-16 h-16" textClassName="text-xl font-display font-bold text-gradient-animate" />
           <div className="reg-image-text">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/10 mb-6">
               <Sparkles className="w-3.5 h-3.5 text-sand" />
@@ -172,7 +172,7 @@ export default function RegisterPage() {
         
         <div className="w-full max-w-md relative">
           {/* Mobile Logo */}
-          <BrandLogo to="/" className="lg:hidden mb-8 text-white" logoClassName="w-10 h-10" textClassName="text-xl font-display font-bold text-gradient-animate" />
+          <BrandLogo to="/" className="lg:hidden mb-8 text-white" logoClassName="w-16 h-16" textClassName="text-xl font-display font-bold text-gradient-animate" />
 
           <div className="reg-form-header text-center mb-8">
             <div className="w-16 h-16 mx-auto mb-5 bg-gradient-to-br from-sand/20 to-sand/5 rounded-2xl flex items-center justify-center border border-white/10 animate-float-slow">

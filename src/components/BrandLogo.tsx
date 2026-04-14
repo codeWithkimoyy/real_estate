@@ -13,14 +13,14 @@ export default function BrandLogo({
   to = '/',
   showText = true,
   className = '',
-  logoClassName = 'w-10 h-10',
+  logoClassName = 'w-14 h-14',
   textClassName = 'text-xl font-display font-bold text-gradient-animate tracking-tight',
   onClick,
 }: BrandLogoProps) {
   return (
     <Link to={to} onClick={onClick} className={`inline-flex items-center gap-3 ${className}`}>
       <img
-        src="/images/brader-logo.svg"
+        src="/images/logo.png"
         alt="Brader Real Estate"
         className={`shrink-0 ${logoClassName}`}
       />
