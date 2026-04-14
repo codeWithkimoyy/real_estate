@@ -22,8 +22,8 @@ final class NotificationService
                 'type' => (string) $row['type'],
                 'title' => (string) $row['title'],
                 'message' => (string) $row['message'],
-                'resourceType' => $row['resource_type'],
-                'resourceId' => $row['resource_id'] ? (int) $row['resource_id'] : null,
+                'resourceType' => $row['reference_type'],
+                'resourceId' => $row['reference_id'] ? (int) $row['reference_id'] : null,
                 'readAt' => $row['is_read'] ? (string) $row['created_at'] : null,
                 'createdAt' => (string) $row['created_at'],
             ];

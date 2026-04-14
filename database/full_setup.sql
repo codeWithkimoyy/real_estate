@@ -424,7 +424,7 @@ CREATE TABLE reservations (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   property_id     INT             NOT NULL,
   user_id         INT             NOT NULL,
-  status          ENUM('active','expired','cancelled','completed') NOT NULL DEFAULT 'active',
+  status          ENUM('pending','active','expired','cancelled','completed') NOT NULL DEFAULT 'pending',
   expires_at      DATETIME        NOT NULL,
   notes           TEXT            NULL,
   deleted_at      DATETIME        NULL,

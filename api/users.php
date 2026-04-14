@@ -238,7 +238,7 @@ if ($method === 'PUT' || $method === 'PATCH') {
 
         // Log to verification_history
         $hStmt = $mysqli->prepare(
-            'INSERT INTO verification_history (user_id, action, performed_by, notes) VALUES (?, ?, ?, ?)'
+            'INSERT INTO verification_history (user_id, action, verifier_id, notes) VALUES (?, ?, ?, ?)'
         );
         $hStmt->bind_param('isis', $userId, $vStatus, $vBy, $vNotes);
         $hStmt->execute();
