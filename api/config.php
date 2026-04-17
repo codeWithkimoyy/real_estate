@@ -87,10 +87,12 @@ return [
     // Email
     'smtp_host'      => env('SMTP_HOST', ''),
     'smtp_port'      => env_int('SMTP_PORT', 587),
+    'smtp_secure'    => env('SMTP_SECURE', 'tls'),
     'smtp_user'      => env('SMTP_USER', ''),
     'smtp_pass'      => env('SMTP_PASS', ''),
-    'smtp_from'      => env('SMTP_FROM', 'noreply@estateflow.ph'),
+    'smtp_from'      => env('SMTP_FROM', 'noreply@braderrealestate.ph'),
     'smtp_from_name' => env('SMTP_FROM_NAME', 'Brader Real Estate'),
+    'smtp_timeout'   => env_int('SMTP_TIMEOUT', 15),
 
     // Google Maps
     'google_maps_api_key' => env('GOOGLE_MAPS_API_KEY', ''),

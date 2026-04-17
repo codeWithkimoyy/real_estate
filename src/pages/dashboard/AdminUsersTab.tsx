@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Users, Trash2, Plus, X, Shield, UserCheck, Store, ShoppingCart, ClipboardCheck, ShieldCheck, Clock, XCircle, AlertCircle, Eye, Check } from 'lucide-react';
-import { getUsers, createUser, deleteUser, verifyUser, type AdminUser } from '../../lib/api';
+import { getUsers, createUser, deleteUser, verifyUser, resolveAssetUrl, type AdminUser } from '../../lib/api';
 import { ROLE_LABELS } from '../../lib/rbac';
 
 const roleIcon: Record<string, typeof Shield> = {
@@ -31,6 +31,9 @@ export default function AdminUsersTab() {
   const [reviewUser, setReviewUser] = useState<AdminUser | null>(null);
   const [rejectNotes, setRejectNotes] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -59,27 +62,55 @@ export default function AdminUsersTab() {
     setCreating(false);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Delete this user?')) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await deleteUser(id);
-      setUsers((prev) => prev.filter((u) => u.id !== id));
-    } catch { /* */ }
+      await deleteUser(deleteTarget.id);
+      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch {
+      setVerificationError('Failed to delete user. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleVerify = async (action: 'verify' | 'reject') => {
     if (!reviewUser) return;
     setVerifying(true);
+    setVerificationError('');
     try {
-      const updated = await verifyUser(reviewUser.id, action, action === 'reject' ? rejectNotes : undefined);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      await verifyUser(reviewUser.id, action, action === 'reject' ? rejectNotes : undefined);
+      const refreshed = await getUsers();
+      setUsers(refreshed.items);
       setReviewUser(null);
       setRejectNotes('');
-    } catch { /* */ }
-    setVerifying(false);
+    } catch (err) {
+      setVerificationError(err instanceof Error ? err.message : 'Failed to update verification status');
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const pendingVerifications = users.filter((u) => u.verificationStatus === 'pending');
+  const renderUserAvatar = (u: AdminUser, sizeClass = 'w-8 h-8') => {
+    if (u.avatar) {
+      return (
+        <img
+          src={resolveAssetUrl(u.avatar)}
+          alt={`${u.firstName} ${u.lastName}`}
+          className={`${sizeClass} rounded-lg object-cover ring-1 ring-white/10`}
+        />
+      );
+    }
+
+    return (
+      <div className={`${sizeClass} rounded-lg bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center text-xs font-bold text-white`}>
+        {u.firstName?.charAt(0)}{u.lastName?.charAt(0)}
+      </div>
+    );
+  };
 
   if (loading) return <div className="space-y-4 animate-pulse">{[1,2,3].map(i => <div key={i} className="rounded-xl bg-white/5 h-16" />)}</div>;
 
@@ -155,9 +186,7 @@ export default function AdminUsersTab() {
             {pendingVerifications.map((u) => (
               <div key={u.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center text-xs font-bold text-white">
-                    {u.firstName?.charAt(0)}{u.lastName?.charAt(0)}
-                  </div>
+                  {renderUserAvatar(u, 'w-8 h-8')}
                   <div>
                     <p className="text-white text-sm font-medium">{u.firstName} {u.lastName}</p>
                     <p className="text-gray-blue text-xs">{u.email}</p>
@@ -201,9 +230,7 @@ export default function AdminUsersTab() {
                   <tr key={u.id} className="group hover:bg-white/[0.02] transition-colors">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center text-xs font-bold text-white">
-                          {u.firstName?.charAt(0)}{u.lastName?.charAt(0)}
-                        </div>
+                        {renderUserAvatar(u, 'w-8 h-8')}
                         <span className="text-white font-medium">{u.firstName} {u.lastName}</span>
                       </div>
                     </td>
@@ -228,7 +255,7 @@ export default function AdminUsersTab() {
                     </td>
                     <td className="py-3 px-4 text-gray-blue">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4">
-                      <button onClick={() => handleDelete(u.id)} className="p-1.5 rounded-lg text-gray-blue hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100">
+                      <button onClick={() => setDeleteTarget(u)} className="p-1.5 rounded-lg text-gray-blue hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
@@ -254,14 +281,18 @@ export default function AdminUsersTab() {
 
             {/* User info */}
             <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center text-sm font-bold text-white">
-                {reviewUser.firstName?.charAt(0)}{reviewUser.lastName?.charAt(0)}
-              </div>
+              {renderUserAvatar(reviewUser, 'w-10 h-10')}
               <div>
                 <p className="text-white font-medium">{reviewUser.firstName} {reviewUser.lastName}</p>
                 <p className="text-gray-blue text-xs">{reviewUser.email} &middot; {reviewUser.userType}</p>
               </div>
             </div>
+
+            {verificationError && (
+              <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                {verificationError}
+              </div>
+            )}
 
             {/* Document preview */}
             {reviewUser.verificationDocument ? (
@@ -275,7 +306,7 @@ export default function AdminUsersTab() {
                   )}
                 </div>
                 <img
-                  src={reviewUser.verificationDocument}
+                  src={resolveAssetUrl(reviewUser.verificationDocument)}
                   alt="Verification document"
                   className="w-full max-h-64 object-contain rounded-lg border border-white/10 bg-black/30"
                 />
@@ -299,6 +330,7 @@ export default function AdminUsersTab() {
             {/* Action buttons */}
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => handleVerify('verify')}
                 disabled={verifying}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500/15 text-green-400 font-medium rounded-lg hover:bg-green-500/25 border border-green-500/20 disabled:opacity-50 transition-all text-sm"
@@ -306,9 +338,10 @@ export default function AdminUsersTab() {
                 <Check className="w-4 h-4" /> {verifying ? 'Processing...' : 'Approve'}
               </button>
               <button
+                type="button"
                 onClick={() => {
                   if (!rejectNotes.trim()) {
-                    alert('Please provide rejection notes.');
+                    setVerificationError('Please provide rejection notes.');
                     return;
                   }
                   handleVerify('reject');
@@ -317,6 +350,44 @@ export default function AdminUsersTab() {
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500/15 text-red-400 font-medium rounded-lg hover:bg-red-500/25 border border-red-500/20 disabled:opacity-50 transition-all text-sm"
               >
                 <XCircle className="w-4 h-4" /> {verifying ? 'Processing...' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#0f2744] border border-white/10 p-6 shadow-2xl">
+            <button
+              onClick={() => !deleting && setDeleteTarget(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-blue hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <h3 className="text-white font-semibold text-lg mb-2">Delete User</h3>
+            <p className="text-gray-blue text-sm mb-5">
+              Delete {deleteTarget.firstName} {deleteTarget.lastName}? This action cannot be undone.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 text-white font-medium rounded-lg hover:bg-white/10 disabled:opacity-50 transition-all text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 bg-red-500/15 text-red-400 font-medium rounded-lg hover:bg-red-500/25 border border-red-500/20 disabled:opacity-50 transition-all text-sm"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

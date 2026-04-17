@@ -6,6 +6,7 @@ import { PUBLIC_SIGNUP_ROLES, ROLE_LABELS } from '../lib/rbac';
 import type { UserRole } from '../lib/rbac';
 import gsap from 'gsap';
 import BrandLogo from '../components/BrandLogo';
+import FloatingParticles from '../components/FloatingParticles';
 
 declare global {
   interface Window {
@@ -69,6 +70,25 @@ async function ensureGoogleScriptLoaded(): Promise<void> {
   });
 }
 
+function getUiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && typeof error.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  if (error && typeof error === 'object') {
+    const maybeObj = error as { message?: unknown; errorMessage?: unknown };
+    if (typeof maybeObj.errorMessage === 'string' && maybeObj.errorMessage.trim()) {
+      return maybeObj.errorMessage;
+    }
+    if (typeof maybeObj.message === 'string' && maybeObj.message.trim()) {
+      return maybeObj.message;
+    }
+  }
+  return fallback;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
@@ -86,6 +106,7 @@ export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>('buyer');
   const formRef = useRef<HTMLDivElement>(null);
   const googleButtonHostRef = useRef<HTMLDivElement>(null);
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     window.__estateflowGoogleCredentialHandler = (credential: string) => {
@@ -103,7 +124,7 @@ export default function LoginPage() {
           }
           navigate('/dashboard');
         } catch (error) {
-          setSubmitError(error instanceof Error ? error.message : 'Unable to sign in with Google');
+          setSubmitError(getUiErrorMessage(error, 'Unable to sign in with Google'));
         } finally {
           setIsGoogleLoading(false);
         }
@@ -124,7 +145,7 @@ export default function LoginPage() {
       setShowRolePicker(false);
       navigate('/dashboard');
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Unable to complete Google sign-up');
+      setSubmitError(getUiErrorMessage(error, 'Unable to complete Google sign-up'));
     } finally {
       setIsGoogleLoading(false);
     }
@@ -183,7 +204,7 @@ export default function LoginPage() {
 
       return true;
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Failed to initialize Google Sign-In');
+      setSubmitError(getUiErrorMessage(error, 'Failed to initialize Google Sign-In'));
       return false;
     } finally {
       const googleInit = getGoogleInitState();
@@ -224,19 +245,23 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (submitInFlightRef.current) return;
     
     if (!validateForm()) return;
     
     setSubmitError('');
+    submitInFlightRef.current = true;
     setIsLoading(true);
 
     try {
       await loginUser(formData.email, formData.password);
-      setIsLoading(false);
       navigate('/dashboard');
     } catch (error) {
+      setSubmitError(getUiErrorMessage(error, 'Unable to sign in'));
+    } finally {
+      submitInFlightRef.current = false;
       setIsLoading(false);
-      setSubmitError(error instanceof Error ? error.message : 'Unable to sign in');
     }
   };
 
@@ -260,36 +285,22 @@ export default function LoginPage() {
       button.click();
     } catch (error) {
       setIsGoogleLoading(false);
-      setSubmitError(error instanceof Error ? error.message : 'Unable to sign in with Google');
+      setSubmitError(getUiErrorMessage(error, 'Unable to sign in with Google'));
     }
   };
 
   return (
     <div className="min-h-screen bg-navy flex relative overflow-hidden page-enter">
       {/* Background particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {Array.from({ length: 15 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full bg-sand/10"
-            style={{
-              width: `${2 + Math.random() * 4}px`,
-              height: `${2 + Math.random() * 4}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `float-particle ${8 + Math.random() * 12}s linear infinite`,
-              animationDelay: `${Math.random() * 10}s`,
-            }}
-          />
-        ))}
-      </div>
+      <FloatingParticles count={15} className="absolute inset-0 pointer-events-none overflow-hidden" sizeRange={4} durationMin={8} durationRange={12} />
 
       {/* Left Side - Image with parallax */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <img 
           src="/images/modern_interior.jpg" 
           alt="Luxury home"
-          className="absolute inset-0 w-full h-full object-cover scale-105 transition-transform duration-[3000ms] hover:scale-110"
+          className="absolute inset-0 w-full h-full object-cover scale-105 transition-transform hover:scale-110"
+          style={{ transitionDuration: '3000ms' }}
         />
         <div className="login-image-overlay absolute inset-0 bg-gradient-to-r from-navy/90 via-navy/50 to-navy/30" />
         <div className="absolute inset-0 bg-gradient-to-t from-navy/80 via-transparent to-transparent" />

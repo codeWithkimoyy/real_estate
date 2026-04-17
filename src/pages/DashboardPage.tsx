@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Home, MessageSquare, Calendar, Heart, ShieldCheck, FileText,
   Plus, Trash2, CheckCircle, XCircle, AlertCircle, Clock, Eye, Send,
@@ -15,6 +15,7 @@ import {
   getAppointments, updateAppointmentStatus, deleteAppointment,
   getPayments, updatePaymentStatus,
   getReservations, updateReservationStatus,
+  resolveAssetUrl,
 } from '../lib/api';
 import { formatPrice, type Property, type Inquiry, type Favorite, type Appointment, type Payment, type Reservation } from '../data/philippineData';
 import AdminUsersTab from './dashboard/AdminUsersTab';
@@ -71,17 +72,13 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Home; tit
 
 export default function DashboardPage() {
   const [auth, setAuth] = useState(getStoredAuth);
-  const [sidebarAvatarError, setSidebarAvatarError] = useState(false);
+  const [failedSidebarAvatarSrc, setFailedSidebarAvatarSrc] = useState<string | null>(null);
 
   useEffect(() => {
     const onAuthChange = () => setAuth(getStoredAuth());
     window.addEventListener('estateflow-auth-changed', onAuthChange);
     return () => window.removeEventListener('estateflow-auth-changed', onAuthChange);
   }, []);
-
-  useEffect(() => {
-    setSidebarAvatarError(false);
-  }, [auth?.user.avatar]);
 
   const role = auth?.user.role;
   const userId = auth?.user.id;
@@ -96,6 +93,26 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>(tabs[0]?.key ?? 'my-listings');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifDots, setNotifDots] = useState<Partial<Record<TabKey, number>>>({});
+
+  const clearDot = useCallback((tab: TabKey) => {
+    setNotifDots((prev) => {
+      if (!prev[tab]) return prev;
+      const next = { ...prev };
+      delete next[tab];
+      return next;
+    });
+  }, []);
+
+  const decrementDot = useCallback((tab: TabKey) => {
+    setNotifDots((prev) => {
+      const cur = prev[tab];
+      if (!cur) return prev;
+      const next = { ...prev };
+      if (cur <= 1) delete next[tab];
+      else next[tab] = cur - 1;
+      return next;
+    });
+  }, []);
 
   // Fetch notification counts for sidebar dots
   useEffect(() => {
@@ -112,14 +129,14 @@ export default function DashboardPage() {
         if (unreadInquiries > 0) dots.inquiries = unreadInquiries;
         const pendingAppts = appointmentsRes.items.filter((a) => a.status === 'pending').length;
         if (pendingAppts > 0) dots.appointments = pendingAppts;
-        const pendingPayments = paymentsRes.items.filter((p) => p.status === 'pending' || p.status === 'processing').length;
+        const pendingPayments = paymentsRes.items.filter((p) => p.status === 'pending').length;
         if (pendingPayments > 0) dots.payments = pendingPayments;
         const activeReservations = reservationsRes.items.filter((r) => r.status === 'active').length;
         if (activeReservations > 0) dots.reservations = activeReservations;
         if (isAdmin || isClerk) {
           const { getProperties: gp, getUsers: gu } = await import('../lib/api');
           if (isAdmin) {
-            const pendingRes = await gp({ status: 'pending' }).catch(() => ({ items: [] as Property[], pagination: { page: 1, perPage: 20, total: 0, totalPages: 0 } }));
+            const pendingRes = await gp({ status: 'pending_approval' }).catch(() => ({ items: [] as Property[], pagination: { page: 1, perPage: 20, total: 0, totalPages: 0 } }));
             if (pendingRes.items.length > 0) dots.approvals = pendingRes.items.length;
           }
           const usersRes = await gu().catch(() => ({ items: [] as { verificationStatus: string }[], pagination: { page: 1, perPage: 20, total: 0, totalPages: 0 } }));
@@ -164,12 +181,12 @@ export default function DashboardPage() {
           {/* User card */}
           <div className="p-5 m-4 mb-0 rounded-xl bg-gradient-to-br from-white/[0.06] to-transparent border border-white/[0.06]">
             <div className="flex items-center gap-3">
-              {auth?.user.avatar && !sidebarAvatarError ? (
+              {auth?.user.avatar && failedSidebarAvatarSrc !== auth.user.avatar ? (
                 <img
-                  src={auth.user.avatar}
+                  src={resolveAssetUrl(auth.user.avatar)}
                   alt=""
                   className="w-11 h-11 rounded-xl object-cover ring-2 ring-white/10 shadow-lg"
-                  onError={() => setSidebarAvatarError(true)}
+                  onError={() => setFailedSidebarAvatarSrc(auth.user.avatar)}
                 />
               ) : (
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#D4A574] to-[#b8895c] flex items-center justify-center text-navy font-bold text-sm shadow-lg shadow-[#D4A574]/20">
@@ -203,7 +220,7 @@ export default function DashboardPage() {
                     return (
                       <button
                         key={t.key}
-                        onClick={() => { setActiveTab(t.key); setSidebarOpen(false); }}
+                        onClick={() => { setActiveTab(t.key); setSidebarOpen(false); clearDot(t.key); }}
                         className={`group w-full flex items-center gap-3 px-3 py-2.5 text-[13px] rounded-lg transition-all duration-200 ${
                           isActive
                             ? 'bg-sand/12 text-sand shadow-sm shadow-sand/5'
@@ -274,13 +291,13 @@ export default function DashboardPage() {
 
           {/* Content area */}
           <div className="px-6 lg:px-8 py-6">
-            {activeTab === 'my-listings' && <MyListingsPanel ownerId={userId} />}
-            {activeTab === 'approvals' && isAdmin && <ApprovalsPanel />}
-            {activeTab === 'inquiries' && <InquiriesPanel />}
-            {activeTab === 'appointments' && <AppointmentsPanel clerkMode={isClerk} />}
+            {activeTab === 'my-listings' && <MyListingsPanel ownerId={isAdmin ? undefined : userId} />}
+            {activeTab === 'approvals' && isAdmin && <ApprovalsPanel onAction={() => decrementDot('approvals')} />}
+            {activeTab === 'inquiries' && <InquiriesPanel onAction={() => decrementDot('inquiries')} />}
+            {activeTab === 'appointments' && <AppointmentsPanel clerkMode={isClerk} onAction={() => decrementDot('appointments')} />}
             {activeTab === 'favorites' && <FavoritesPanel />}
-            {activeTab === 'payments' && <PaymentsPanel />}
-            {activeTab === 'reservations' && <ReservationsPanel />}
+            {activeTab === 'payments' && <PaymentsPanel onAction={() => decrementDot('payments')} />}
+            {activeTab === 'reservations' && <ReservationsPanel onAction={() => decrementDot('reservations')} />}
             {activeTab === 'users' && (isAdmin || isClerk) && <AdminUsersTab />}
             {activeTab === 'analytics' && isAdmin && <AdminAnalyticsTab />}
             {activeTab === 'audit' && isAdmin && <AdminAuditTab />}
@@ -321,19 +338,21 @@ function MyListingsPanel({ ownerId }: { ownerId?: number }) {
   };
 
   if (loading) return <PanelSkeleton rows={4} />;
-  if (!listings.length) return <EmptyState icon={Home} title="No listings yet" description="Your property listings will appear here." />;
+  if (!listings.length) return <EmptyState icon={Home} title="No listings yet" description={ownerId ? "Your property listings will appear here." : "Property listings will appear here once sellers add them."} />;
 
-  const approved = listings.filter((p) => p.status === 'approved').length;
-  const pending = listings.filter((p) => p.status === 'pending').length;
-  const rejected = listings.filter((p) => p.status === 'rejected').length;
+  const drafts = listings.filter((p) => p.status === 'draft').length;
+  const pendingApproval = listings.filter((p) => p.status === 'pending_approval').length;
+  const available = listings.filter((p) => p.status === 'available').length;
+  const reserved = listings.filter((p) => p.status === 'reserved' || p.status === 'under_offer').length;
 
   return (
     <div>
       <QuickStats items={[
         { label: 'Total', value: listings.length, icon: Building2, color: 'bg-sand/15 text-sand' },
-        { label: 'Approved', value: approved, icon: CheckCircle, color: 'bg-green-500/15 text-green-400' },
-        { label: 'Pending', value: pending, icon: Clock, color: 'bg-yellow-500/15 text-yellow-400' },
-        { label: 'Rejected', value: rejected, icon: XCircle, color: 'bg-red-500/15 text-red-400' },
+        { label: 'Available', value: available, icon: CheckCircle, color: 'bg-green-500/15 text-green-400' },
+        { label: 'Pending Approval', value: pendingApproval, icon: Clock, color: 'bg-yellow-500/15 text-yellow-400' },
+        { label: 'Drafts', value: drafts, icon: FileText, color: 'bg-slate-500/15 text-slate-300' },
+        { label: 'Reserved / Offer', value: reserved, icon: Bookmark, color: 'bg-orange-500/15 text-orange-400' },
       ]} />
       <div className="space-y-3">
         {listings.map((p) => (
@@ -363,14 +382,14 @@ function MyListingsPanel({ ownerId }: { ownerId?: number }) {
   );
 }
 
-function ApprovalsPanel() {
+function ApprovalsPanel({ onAction }: { onAction?: () => void }) {
   const [pending, setPending] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await getProperties({ status: 'pending' });
+        const data = await getProperties({ status: 'pending_approval' });
         setPending(data.items);
       } catch { /* */ }
       setLoading(false);
@@ -383,6 +402,7 @@ function ApprovalsPanel() {
       if (action === 'approve') await approveProperty(id);
       else await rejectProperty(id);
       setPending((prev) => prev.filter((p) => p.id !== id));
+      onAction?.();
     } catch { /* */ }
   };
 
@@ -397,9 +417,9 @@ function ApprovalsPanel() {
       <div className="space-y-3">
         {pending.map((p) => (
           <div key={p.id} className="rounded-xl bg-gradient-to-r from-white/[0.05] to-white/[0.02] border border-white/[0.06] p-5">
-            <div className="flex items-start gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
               <Link to={`/property/${p.id}`} className="flex-shrink-0">
-                <img src={p.image} alt="" className="w-28 h-20 object-cover rounded-lg ring-1 ring-white/10" />
+                <img src={p.image} alt="" className="w-full sm:w-28 h-40 sm:h-20 object-cover rounded-lg ring-1 ring-white/10" />
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`/property/${p.id}`} className="text-white font-semibold hover:text-sand block truncate transition-colors">
@@ -420,11 +440,11 @@ function ApprovalsPanel() {
                   </div>
                 )}
               </div>
-              <div className="flex gap-2 flex-shrink-0">
-                <button onClick={() => handle(p.id, 'approve')} className="flex items-center gap-1.5 px-4 py-2 bg-green-500/15 text-green-400 rounded-lg text-sm font-medium hover:bg-green-500/25 transition-colors">
+              <div className="flex gap-2 flex-shrink-0 relative z-10">
+                <button onClick={() => handle(p.id, 'approve')} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-green-500/15 text-green-400 rounded-lg text-sm font-medium hover:bg-green-500/25 active:scale-95 transition-all cursor-pointer">
                   <CheckCircle className="w-4 h-4" /> Approve
                 </button>
-                <button onClick={() => handle(p.id, 'reject')} className="flex items-center gap-1.5 px-4 py-2 bg-red-500/15 text-red-400 rounded-lg text-sm font-medium hover:bg-red-500/25 transition-colors">
+                <button onClick={() => handle(p.id, 'reject')} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-500/15 text-red-400 rounded-lg text-sm font-medium hover:bg-red-500/25 active:scale-95 transition-all cursor-pointer">
                   <XCircle className="w-4 h-4" /> Reject
                 </button>
               </div>
@@ -436,7 +456,7 @@ function ApprovalsPanel() {
   );
 }
 
-function InquiriesPanel() {
+function InquiriesPanel({ onAction }: { onAction?: () => void }) {
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -476,6 +496,7 @@ function InquiriesPanel() {
     try {
       const updated = await markInquiryRead(id);
       setInquiries((prev) => prev.map((i) => (i.id === id ? updated : i)));
+      onAction?.();
     } catch { /* */ }
   };
 
@@ -636,7 +657,7 @@ function InquiriesPanel() {
   );
 }
 
-function AppointmentsPanel({ clerkMode = false }: { clerkMode?: boolean }) {
+function AppointmentsPanel({ clerkMode = false, onAction }: { clerkMode?: boolean; onAction?: () => void }) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<'all' | 'viewing' | 'walk_in_payment'>(clerkMode ? 'walk_in_payment' : 'all');
@@ -654,6 +675,7 @@ function AppointmentsPanel({ clerkMode = false }: { clerkMode?: boolean }) {
     try {
       const updated = await updateAppointmentStatus(id, status);
       setAppointments((prev) => prev.map((a) => (a.id === id ? updated : a)));
+      if (status !== 'completed') onAction?.();
     } catch { /* */ }
   };
 
@@ -875,14 +897,16 @@ function FavoritesPanel() {
 
 function StatusBadge({ status }: { status: string }) {
   const cls: Record<string, string> = {
-    approved: 'bg-green-500/15 text-green-400 ring-green-500/20',
-    pending: 'bg-yellow-500/15 text-yellow-400 ring-yellow-500/20',
-    rejected: 'bg-red-500/15 text-red-400 ring-red-500/20',
-    sold: 'bg-blue-500/15 text-blue-400 ring-blue-500/20',
+    draft: 'bg-slate-500/15 text-slate-300 ring-slate-500/20',
+    pending_approval: 'bg-yellow-500/15 text-yellow-400 ring-yellow-500/20',
+    available: 'bg-green-500/15 text-green-400 ring-green-500/20',
+    reserved: 'bg-orange-500/15 text-orange-400 ring-orange-500/20',
+    under_offer: 'bg-blue-500/15 text-blue-400 ring-blue-500/20',
+    sold: 'bg-red-500/15 text-red-400 ring-red-500/20',
   };
   return (
     <span className={`px-2.5 py-1 text-xs font-medium rounded-lg ring-1 capitalize ${cls[status] ?? 'bg-white/10 text-gray-blue ring-white/10'}`}>
-      {status}
+      {status.replace('_', ' ')}
     </span>
   );
 }
@@ -919,13 +943,13 @@ function ApptBadge({ status }: { status: string }) {
    Payments Panel
    ================================================================ */
 
-function PaymentsPanel() {
+function PaymentsPanel({ onAction }: { onAction?: () => void }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const auth = getStoredAuth();
   const isAdmin = auth?.user.role === 'administrator';
-  const isSeller = auth?.user.role === 'seller' || auth?.user.role === 'agent';
+  const isClerk = auth?.user.role === 'clerk';
 
   useEffect(() => {
     const load = async () => {
@@ -935,18 +959,19 @@ function PaymentsPanel() {
     void load();
   }, []);
 
-  const handleStatus = async (id: number, status: 'completed' | 'failed' | 'processing') => {
+  const handleStatus = async (id: number, status: 'paid' | 'failed') => {
     try {
       const updated = await updatePaymentStatus(id, status);
       setPayments((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      onAction?.();
     } catch { /* */ }
   };
 
   if (loading) return <PanelSkeleton />;
   if (!payments.length) return <EmptyState icon={CreditCard} title="No payments yet" description="Payment records will appear here once transactions are initiated." />;
 
-  const totalAmount = payments.filter((p) => p.status === 'completed').reduce((s, p) => s + p.amount, 0);
-  const pending = payments.filter((p) => p.status === 'pending' || p.status === 'processing').length;
+  const totalAmount = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
+  const pending = payments.filter((p) => p.status === 'pending').length;
 
   const methodLabels: Record<string, string> = {
     bank_transfer: 'Bank Transfer', gcash: 'GCash', pagibig: 'Pag-IBIG', cash: 'Cash', credit_card: 'Credit Card',
@@ -962,7 +987,7 @@ function PaymentsPanel() {
     <div>
       <QuickStats items={[
         { label: 'Total Payments', value: payments.length, icon: CreditCard, color: 'bg-purple-500/15 text-purple-400' },
-        { label: 'Completed', value: `₱${totalAmount.toLocaleString()}`, icon: CheckCircle, color: 'bg-green-500/15 text-green-400' },
+        { label: 'Paid', value: 'PHP ' + totalAmount.toLocaleString(), icon: CheckCircle, color: 'bg-green-500/15 text-green-400' },
         { label: 'Pending', value: pending, icon: Clock, color: 'bg-yellow-500/15 text-yellow-400' },
       ]} />
       <div className="space-y-3">
@@ -1057,23 +1082,24 @@ function PaymentsPanel() {
                   )}
 
                   {/* Property link */}
-                  <Link to={`/property/${pay.propertyId}`} className="inline-flex items-center gap-1.5 text-sand text-sm hover:underline">
-                    <Eye className="w-3.5 h-3.5" /> View Property
-                  </Link>
+                  {pay.propertyTitle && pay.propertyTitle !== '[Deleted Property]' ? (
+                    <Link to={`/property/${pay.propertyId}`} className="inline-flex items-center gap-1.5 text-sand text-sm hover:underline">
+                      <Eye className="w-3.5 h-3.5" /> View Property
+                    </Link>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-gray-blue text-sm cursor-not-allowed">
+                      <Eye className="w-3.5 h-3.5" /> Property no longer available
+                    </span>
+                  )}
 
                   {/* Actions */}
-                  {(isAdmin || isSeller) && (pay.status === 'pending' || pay.status === 'processing') && (
+                  {(isAdmin || isClerk) && pay.status === 'pending' && (
                     <div className="flex gap-2 pt-3 border-t border-white/[0.06]">
-                      {pay.status === 'pending' && (
-                        <button onClick={() => handleStatus(pay.id, 'processing')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-xs hover:bg-blue-500/20 transition-colors">
-                          <Clock className="w-3 h-3" /> Mark Processing
-                        </button>
-                      )}
-                      <button onClick={() => handleStatus(pay.id, 'completed')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-500/10 text-green-400 text-xs hover:bg-green-500/20 transition-colors">
-                        <CheckCircle className="w-3 h-3" /> Confirm Payment
+                      <button onClick={() => handleStatus(pay.id, 'paid')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-500/10 text-green-400 text-xs hover:bg-green-500/20 transition-colors">
+                        <CheckCircle className="w-3 h-3" /> Mark Paid
                       </button>
                       <button onClick={() => handleStatus(pay.id, 'failed')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs hover:bg-red-500/20 transition-colors">
-                        <XCircle className="w-3 h-3" /> Reject
+                        <XCircle className="w-3 h-3" /> Mark Failed
                       </button>
                     </div>
                   )}
@@ -1090,8 +1116,7 @@ function PaymentsPanel() {
 function PaymentBadge({ status }: { status: string }) {
   const cls: Record<string, string> = {
     pending: 'bg-yellow-500/15 text-yellow-400 ring-yellow-500/20',
-    processing: 'bg-blue-500/15 text-blue-400 ring-blue-500/20',
-    completed: 'bg-green-500/15 text-green-400 ring-green-500/20',
+    paid: 'bg-green-500/15 text-green-400 ring-green-500/20',
     failed: 'bg-red-500/15 text-red-400 ring-red-500/20',
     refunded: 'bg-purple-500/15 text-purple-400 ring-purple-500/20',
   };
@@ -1106,13 +1131,16 @@ function PaymentBadge({ status }: { status: string }) {
    Reservations Panel
    ================================================================ */
 
-function ReservationsPanel() {
+function ReservationsPanel({ onAction }: { onAction?: () => void }) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [slipReservation, setSlipReservation] = useState<Reservation | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const slipRef = useRef<HTMLDivElement>(null);
   const auth = getStoredAuth();
   const isAdmin = auth?.user.role === 'administrator';
+  const isClerk = auth?.user.role === 'clerk';
+  const currentUserId = auth?.user.id;
 
   useEffect(() => {
     const load = async () => {
@@ -1122,10 +1150,19 @@ function ReservationsPanel() {
     void load();
   }, []);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const handleCancel = async (id: number) => {
     try {
       const updated = await updateReservationStatus(id, 'cancelled');
       setReservations((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      onAction?.();
     } catch { /* */ }
   };
 
@@ -1133,6 +1170,7 @@ function ReservationsPanel() {
     try {
       const updated = await updateReservationStatus(id, 'completed');
       setReservations((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      onAction?.();
     } catch { /* */ }
   };
 
@@ -1140,7 +1178,7 @@ function ReservationsPanel() {
     try {
       const updated = await updateReservationStatus(id, 'active');
       setReservations((prev) => prev.map((r) => (r.id === id ? updated : r)));
-      setSlipReservation(updated);
+      onAction?.();
     } catch { /* */ }
   };
 
@@ -1163,7 +1201,7 @@ function ReservationsPanel() {
         @media print { body { padding: 20px; } }
       </style></head><body>
       ${slipRef.current.innerHTML}
-      <script>window.print(); window.close();<\/script>
+      <script>window.print(); window.close();</script>
       </body></html>
     `);
     printWindow.document.close();
@@ -1196,9 +1234,11 @@ function ReservationsPanel() {
       ]} />
       <div className="space-y-3">
         {reservations.map((res) => {
-          const isExpired = res.status === 'active' && new Date(res.expiresAt) < new Date();
           const expiresDate = new Date(res.expiresAt);
-          const daysLeft = res.status === 'active' ? Math.max(0, Math.ceil((expiresDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+          const isExpired = res.status === 'active' && expiresDate.getTime() < currentTime;
+          const daysLeft = res.status === 'active'
+            ? Math.max(0, Math.ceil((expiresDate.getTime() - currentTime) / (1000 * 60 * 60 * 24)))
+            : 0;
 
           return (
             <div key={res.id} className="group rounded-xl bg-gradient-to-r from-white/[0.05] to-white/[0.02] border border-white/[0.06] hover:border-white/[0.12] p-5 transition-all duration-200">
@@ -1218,7 +1258,8 @@ function ReservationsPanel() {
                     </span>
                   </div>
                   {isAdmin && <p className="text-gray-blue text-sm">Reserved by: <span className="text-white">{res.userName}</span></p>}
-                  {!isAdmin && res.userId !== auth?.user.id && <p className="text-gray-blue text-sm">Reserved by: <span className="text-white">{res.userName}</span></p>}
+                  {!isAdmin && res.userId !== currentUserId && <p className="text-gray-blue text-sm">Reserved by: <span className="text-white">{res.userName}</span></p>}
+                  {res.userId === currentUserId && <p className="text-gray-blue text-sm">Owner: <span className="text-white">{res.ownerName}</span></p>}
                   <div className="flex items-center gap-3 mt-2 text-sm">
                     <span className="text-gray-blue">
                       Expires: <span className="text-white">{expiresDate.toLocaleDateString()}</span>
@@ -1234,12 +1275,17 @@ function ReservationsPanel() {
               </div>
               {(res.status === 'active' || res.status === 'pending') && !isExpired && (
                 <div className="flex gap-2 mt-4 pt-3 border-t border-white/[0.04]">
-                  {res.status === 'pending' && (
+                  {res.status === 'pending' && (isAdmin || isClerk) && (
                     <button onClick={() => handleConfirm(res.id)} className="flex items-center gap-1.5 text-xs px-4 py-2 bg-green-500/15 text-green-400 rounded-lg hover:bg-green-500/25 font-medium transition-colors">
                       <CheckCircle className="w-3.5 h-3.5" /> Confirm Reservation
                     </button>
                   )}
-                  {res.status === 'active' && isAdmin && (
+                  {res.status === 'active' && res.userId === currentUserId && (
+                    <button onClick={() => setSlipReservation(res)} className="flex items-center gap-1.5 text-xs px-4 py-2 bg-sand/15 text-sand rounded-lg hover:bg-sand/25 font-medium transition-colors">
+                      <Printer className="w-3.5 h-3.5" /> View Confirmation Slip
+                    </button>
+                  )}
+                  {res.status === 'active' && (isAdmin || isClerk) && (
                     <button onClick={() => handleComplete(res.id)} className="flex items-center gap-1.5 text-xs px-4 py-2 bg-blue-500/15 text-blue-400 rounded-lg hover:bg-blue-500/25 font-medium transition-colors">
                       <CheckCircle className="w-3.5 h-3.5" /> Mark Completed
                     </button>
@@ -1308,3 +1354,5 @@ function ReservationsPanel() {
     </div>
   );
 }
+
+

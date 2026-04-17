@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
-import { uploadFile } from '../lib/api';
+import { uploadFile, resolveAssetUrl } from '../lib/api';
 
 interface ImageUploadProps {
   value: string;
@@ -24,12 +24,8 @@ export default function ImageUpload({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
+  const [failedPreviewSrc, setFailedPreviewSrc] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setPreviewError(false);
-  }, [value]);
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -77,13 +73,13 @@ export default function ImageUpload({
 
       <div className="flex items-center gap-4">
         {/* Preview */}
-        {value && !previewError ? (
+        {value && failedPreviewSrc !== value ? (
           <div className={`relative group ${previewSize} shrink-0`}>
             <img
-              src={value}
+              src={resolveAssetUrl(value)}
               alt="Preview"
               className={`${previewSize} ${roundCls} object-cover ring-2 ring-white/10`}
-              onError={() => setPreviewError(true)}
+              onError={() => setFailedPreviewSrc(value)}
             />
             <button
               type="button"

@@ -19,6 +19,7 @@ RewriteRule ^$ dist/index.html [L]
 
 # Map built asset/public paths expected by dist/index.html
 RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+RewriteRule ^images/uploads/(.*)$ public/images/uploads/$1 [L]
 RewriteRule ^images/(.*)$ dist/images/$1 [L]
 
 # Keep API and DB scripts handled normally

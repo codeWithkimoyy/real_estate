@@ -140,12 +140,15 @@ if ($method === 'POST') {
     $message = sanitize_string($message, 2000);
 
     // Get property owner
-    $stmt = $mysqli->prepare('SELECT owner_id, title FROM properties WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+    $stmt = $mysqli->prepare('SELECT owner_id, title, status FROM properties WHERE id = ? AND deleted_at IS NULL LIMIT 1');
     $stmt->bind_param('i', $propertyId);
     $stmt->execute();
     $prop = $stmt->get_result()->fetch_assoc();
     if (!$prop) {
         send_json(404, ['ok' => false, 'error' => 'Property not found']);
+    }
+    if (!in_array((string) ($prop['status'] ?? ''), ['available', 'reserved'], true)) {
+        send_json(422, ['ok' => false, 'error' => 'This property is not open for new inquiries']);
     }
 
     $senderId   = (int) $user['id'];

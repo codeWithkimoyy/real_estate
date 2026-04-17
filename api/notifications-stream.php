@@ -29,8 +29,8 @@ for ($i = 0; $i < $maxTicks; $i++) {
         break;
     }
 
-    // Keep stale reservations and related counters fresh for clients.
-    $mysqli->query("UPDATE reservations SET status = 'expired' WHERE status IN ('active','pending') AND expires_at < NOW() AND deleted_at IS NULL");
+    // Keep stale reservations and property states fresh for clients.
+    expire_stale_reservations_and_release_properties($mysqli);
 
     $unreadStmt = $mysqli->prepare('SELECT COUNT(*) AS unread_count FROM notifications WHERE user_id = ? AND is_read = 0');
     $unreadStmt->bind_param('i', $uid);

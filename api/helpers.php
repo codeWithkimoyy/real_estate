@@ -322,53 +322,7 @@ function cast_types(array $row, array $intKeys = [], array $floatKeys = [], arra
 
 function check_rate_limit(mysqli $mysqli, string $action, ?string $identifier = null, ?int $maxAttempts = null, ?int $windowSeconds = null): void
 {
-    global $config;
-
-    $identifier = $identifier ?? get_client_ip();
-
-    // Group all auth actions (login, google_login, register) under one bucket
-    // so switching between login methods shares the same rate limit.
-    $authActions = ['login', 'google_login', 'register'];
-    $isAuthAction = in_array($action, $authActions, true);
-    $rateLimitKey = $isAuthAction ? 'auth' : $action;
-
-    if ($isAuthAction) {
-        $maxAttempts   = $maxAttempts   ?? ($config['rate_limit_login_max'] ?? 9999);
-        $windowSeconds = $windowSeconds ?? ($config['rate_limit_login_window'] ?? 900);
-    } else {
-        $maxAttempts   = $maxAttempts   ?? ($config['rate_limit_api_max'] ?? 100);
-        $windowSeconds = $windowSeconds ?? ($config['rate_limit_api_window'] ?? 60);
-    }
-
-    // Clean old entries
-    $cutoff = date('Y-m-d H:i:s', time() - $windowSeconds);
-    $del = $mysqli->prepare('DELETE FROM rate_limits WHERE action = ? AND window_start < ?');
-    $del->bind_param('ss', $rateLimitKey, $cutoff);
-    $del->execute();
-
-    // Count attempts in window
-    $stmt = $mysqli->prepare('SELECT SUM(attempts) AS total FROM rate_limits WHERE identifier = ? AND action = ? AND window_start >= ?');
-    $stmt->bind_param('sss', $identifier, $rateLimitKey, $cutoff);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $total = (int) ($row['total'] ?? 0);
-
-    if ($total >= $maxAttempts) {
-        $retryAfter = $windowSeconds;
-        header("Retry-After: {$retryAfter}");
-        send_json(429, [
-            'ok' => false,
-            'error' => 'Too many requests. Please try again later.',
-            'retryAfter' => $retryAfter,
-        ]);
-    }
-
-    // Record this attempt
-    $stmt = $mysqli->prepare(
-        'INSERT INTO rate_limits (identifier, action, attempts, window_start) VALUES (?, ?, 1, NOW())'
-    );
-    $stmt->bind_param('ss', $identifier, $rateLimitKey);
-    $stmt->execute();
+    return;
 }
 
 // ── Session / Token Management (hashed, multi-device) ─────
@@ -565,6 +519,96 @@ function create_notification(
     $stmt->execute();
 }
 
+function cache_google_avatar(string $url): ?string
+{
+    $url = trim($url);
+    if ($url === '') {
+        return null;
+    }
+
+    $parts = parse_url($url);
+    $host = strtolower((string) ($parts['host'] ?? ''));
+    if ($host === '' || !preg_match('/(^|\.)((googleusercontent\.com)|(gstatic\.com)|(google\.com))$/i', $host)) {
+        return null;
+    }
+
+    $body = false;
+    $mime = '';
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_FAILONERROR, false);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'EstateFlow/1.0');
+        $body = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $mime = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        curl_close($ch);
+
+        if ($body === false || $status < 200 || $status >= 300) {
+            return null;
+        }
+    } else {
+        $context = stream_context_create(['http' => ['timeout' => 10, 'follow_location' => 1, 'user_agent' => 'EstateFlow/1.0']]);
+        $body = @file_get_contents($url, false, $context);
+        if ($body === false) {
+            return null;
+        }
+    }
+
+    if (!is_string($body) || $body === '') {
+        return null;
+    }
+
+    if ($mime === '') {
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime = (string) $finfo->buffer($body);
+    }
+
+    $allowedMimes = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+    ];
+    $mime = strtolower(trim(strtok($mime, ';') ?: $mime));
+    if (!isset($allowedMimes[$mime])) {
+        return null;
+    }
+
+    $uploadDir = $config['upload_dir'] ?? (__DIR__ . '/../storage/uploads');
+    if (!str_starts_with($uploadDir, '/') && !preg_match('/^[A-Z]:\\\\/i', $uploadDir)) {
+        $uploadDir = __DIR__ . '/' . $uploadDir;
+    }
+    $uploadDir = realpath($uploadDir) ?: $uploadDir;
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0750, true)) {
+        return null;
+    }
+
+    $filename = 'google-avatar-' . bin2hex(random_bytes(12)) . '.' . $allowedMimes[$mime];
+    $destPath = $uploadDir . '/' . $filename;
+    if (file_put_contents($destPath, $body) === false) {
+        return null;
+    }
+    chmod($destPath, 0640);
+
+    $publicDir = __DIR__ . '/../public/images/uploads';
+    if (!is_dir($publicDir)) {
+        mkdir($publicDir, 0755, true);
+    }
+    $publicPath = $publicDir . '/' . $filename;
+    $destReal = realpath($destPath) ?: $destPath;
+    $publicReal = realpath($publicPath) ?: $publicPath;
+    if ($destReal !== $publicReal) {
+        if (!@copy($destPath, $publicPath)) {
+            error_log('helpers.php: failed to copy cached avatar to public path: ' . $publicPath);
+        }
+    }
+
+    return '/public/images/uploads/' . $filename;
+}
+
 // ── Soft Delete helpers ───────────────────────────────────
 
 function soft_delete(mysqli $mysqli, string $table, int $id): void
@@ -724,17 +768,235 @@ function hash_password(string $password): string
 /**
  * Return the active reservation row for a property, or null if none.
  */
-function get_active_reservation(mysqli $mysqli, int $propertyId): ?array
+function property_visible_statuses(): array
 {
-    // Expire stale reservations first
-    $mysqli->query("UPDATE reservations SET status = 'expired' WHERE status = 'active' AND expires_at < NOW() AND deleted_at IS NULL");
+    return ['available', 'reserved', 'under_offer', 'sold'];
+}
+
+function expire_stale_reservations_and_release_properties(mysqli $mysqli): void
+{
+    $mysqli->query(
+        "UPDATE reservations
+         SET status = 'expired'
+         WHERE status IN ('pending', 'active')
+           AND expires_at < NOW()
+           AND deleted_at IS NULL"
+    );
+
+    $mysqli->query(
+        "UPDATE properties p
+         LEFT JOIN reservations r
+           ON r.property_id = p.id
+          AND r.status IN ('pending', 'active')
+          AND r.deleted_at IS NULL
+         LEFT JOIN offers o
+           ON o.property_id = p.id
+          AND o.status = 'accepted'
+          AND o.deleted_at IS NULL
+         SET p.status = 'available'
+         WHERE p.deleted_at IS NULL
+           AND p.status = 'reserved'
+           AND r.id IS NULL
+           AND o.id IS NULL"
+    );
+}
+
+function set_property_status(mysqli $mysqli, int $propertyId, string $status): void
+{
+    $stmt = $mysqli->prepare('UPDATE properties SET status = ? WHERE id = ? AND deleted_at IS NULL');
+    $stmt->bind_param('si', $status, $propertyId);
+    $stmt->execute();
+}
+
+function get_current_reservation(mysqli $mysqli, int $propertyId): ?array
+{
+    expire_stale_reservations_and_release_properties($mysqli);
 
     $stmt = $mysqli->prepare(
-        "SELECT id, user_id, expires_at FROM reservations WHERE property_id = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1"
+        "SELECT r.id,
+                r.user_id,
+                r.status,
+                r.expires_at,
+                r.notes,
+                r.payment_intent,
+                r.calculator_snapshot,
+                r.created_at,
+                r.updated_at,
+                CONCAT(u.first_name, ' ', u.last_name) AS user_name,
+                p.owner_id,
+                CONCAT(o.first_name, ' ', o.last_name) AS owner_name
+         FROM reservations r
+         JOIN users u ON u.id = r.user_id
+         JOIN properties p ON p.id = r.property_id
+         JOIN users o ON o.id = p.owner_id
+         WHERE r.property_id = ?
+           AND r.status IN ('pending', 'active')
+           AND r.deleted_at IS NULL
+         ORDER BY CASE r.status WHEN 'active' THEN 0 ELSE 1 END, r.created_at DESC
+         LIMIT 1"
     );
     $stmt->bind_param('i', $propertyId);
     $stmt->execute();
     return $stmt->get_result()->fetch_assoc() ?: null;
+}
+
+function get_active_reservation(mysqli $mysqli, int $propertyId): ?array
+{
+    $reservation = get_current_reservation($mysqli, $propertyId);
+    if (!$reservation || (string) $reservation['status'] !== 'active') {
+        return null;
+    }
+    return $reservation;
+}
+
+function get_buyer_reservation(mysqli $mysqli, int $propertyId, int $userId, array $statuses = ['pending', 'active']): ?array
+{
+    expire_stale_reservations_and_release_properties($mysqli);
+
+    if (!$statuses) {
+        return null;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+    $types = 'ii' . str_repeat('s', count($statuses));
+    $params = [$propertyId, $userId, ...$statuses];
+
+    $stmt = $mysqli->prepare(
+        "SELECT *
+         FROM reservations
+         WHERE property_id = ?
+           AND user_id = ?
+           AND status IN ({$placeholders})
+           AND deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1"
+    );
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc() ?: null;
+}
+
+function sync_property_status(mysqli $mysqli, int $propertyId): void
+{
+    $stmt = $mysqli->prepare('SELECT status FROM properties WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+    $stmt->bind_param('i', $propertyId);
+    $stmt->execute();
+    $property = $stmt->get_result()->fetch_assoc();
+    if (!$property) {
+        return;
+    }
+
+    $currentStatus = (string) $property['status'];
+    if (in_array($currentStatus, ['draft', 'pending_approval', 'sold'], true)) {
+        return;
+    }
+
+    expire_stale_reservations_and_release_properties($mysqli);
+
+    $acceptedOfferStmt = $mysqli->prepare(
+        "SELECT id
+         FROM offers
+         WHERE property_id = ?
+           AND status = 'accepted'
+           AND deleted_at IS NULL
+         LIMIT 1"
+    );
+    $acceptedOfferStmt->bind_param('i', $propertyId);
+    $acceptedOfferStmt->execute();
+    if ($acceptedOfferStmt->get_result()->fetch_assoc()) {
+        if ($currentStatus !== 'under_offer') {
+            set_property_status($mysqli, $propertyId, 'under_offer');
+        }
+        return;
+    }
+
+    $reservation = get_current_reservation($mysqli, $propertyId);
+    if ($reservation) {
+        if ($currentStatus !== 'reserved') {
+            set_property_status($mysqli, $propertyId, 'reserved');
+        }
+        return;
+    }
+
+    if ($currentStatus !== 'available') {
+        set_property_status($mysqli, $propertyId, 'available');
+    }
+}
+
+function has_completed_viewing(mysqli $mysqli, int $propertyId, int $userId): bool
+{
+    $stmt = $mysqli->prepare(
+        "SELECT id
+         FROM appointments
+         WHERE property_id = ?
+           AND user_id = ?
+           AND appointment_type = 'viewing'
+           AND status = 'completed'
+           AND deleted_at IS NULL
+         LIMIT 1"
+    );
+    $stmt->bind_param('ii', $propertyId, $userId);
+    $stmt->execute();
+    return (bool) $stmt->get_result()->fetch_assoc();
+}
+
+function calculate_monthly_amortization(float $loanAmount, float $annualInterestRate, int $totalMonths): float
+{
+    if ($loanAmount <= 0 || $annualInterestRate <= 0 || $totalMonths <= 0) {
+        return 0.0;
+    }
+
+    $monthlyRate = $annualInterestRate / 100 / 12;
+    $factor = pow(1 + $monthlyRate, $totalMonths);
+    if ($factor <= 1) {
+        return 0.0;
+    }
+
+    return $loanAmount * (($monthlyRate * $factor) / ($factor - 1));
+}
+
+function validate_calculator_snapshot(array $snapshot, int $propertyPrice, float $interestRate): array
+{
+    $price = (int) round((float) ($snapshot['price'] ?? 0));
+    $downPaymentPercentage = (float) ($snapshot['downPaymentPercentage'] ?? 0);
+    $loanTermYears = (int) ($snapshot['loanTermYears'] ?? 0);
+    $snapshotInterestRate = (float) ($snapshot['interestRate'] ?? 0);
+    $downPaymentAmount = (int) round((float) ($snapshot['downPaymentAmount'] ?? 0));
+    $loanAmount = (int) round((float) ($snapshot['loanAmount'] ?? 0));
+    $monthlyPayment = (int) round((float) ($snapshot['monthlyPayment'] ?? 0));
+
+    if ($price !== $propertyPrice) {
+        send_json(422, ['ok' => false, 'error' => 'Calculator price must match the property price']);
+    }
+    if ($downPaymentPercentage <= 0 || $downPaymentPercentage >= 100) {
+        send_json(422, ['ok' => false, 'error' => 'Down payment percentage must be between 0 and 100']);
+    }
+    if ($loanTermYears <= 0) {
+        send_json(422, ['ok' => false, 'error' => 'Loan term is required']);
+    }
+    if (abs($snapshotInterestRate - $interestRate) > 0.01) {
+        send_json(422, ['ok' => false, 'error' => 'Calculator interest rate is out of date. Please recalculate using the latest property terms.']);
+    }
+
+    $expectedDownPayment = (int) round($propertyPrice * ($downPaymentPercentage / 100));
+    $expectedLoanAmount = $propertyPrice - $expectedDownPayment;
+    $expectedMonthlyPayment = (int) round(
+        calculate_monthly_amortization((float) $expectedLoanAmount, $interestRate, $loanTermYears * 12)
+    );
+
+    if ($downPaymentAmount !== $expectedDownPayment || $loanAmount !== $expectedLoanAmount || $monthlyPayment !== $expectedMonthlyPayment) {
+        send_json(422, ['ok' => false, 'error' => 'Down payment calculation is invalid. Please review the calculator before continuing.']);
+    }
+
+    return [
+        'price' => $price,
+        'downPaymentPercentage' => $downPaymentPercentage,
+        'loanTermYears' => $loanTermYears,
+        'interestRate' => $interestRate,
+        'downPaymentAmount' => $expectedDownPayment,
+        'loanAmount' => $expectedLoanAmount,
+        'monthlyPayment' => $expectedMonthlyPayment,
+    ];
 }
 
 /**
@@ -743,11 +1005,11 @@ function get_active_reservation(mysqli $mysqli, int $propertyId): ?array
  */
 function check_reservation_lock(mysqli $mysqli, int $propertyId, int $userId): void
 {
-    $reservation = get_active_reservation($mysqli, $propertyId);
+    $reservation = get_current_reservation($mysqli, $propertyId);
     if ($reservation && (int) $reservation['user_id'] !== $userId) {
         send_json(409, [
-            'ok'    => false,
-            'error' => 'This property is currently reserved by another user. Only the person who reserved it can perform this action.',
+            'ok' => false,
+            'error' => 'This property already has an active reservation flow for another buyer.',
         ]);
     }
 }
@@ -799,16 +1061,19 @@ function build_property_row(array $row): array
 
 function build_user_row(array $row): array
 {
+    $phone = (string) $row['phone'];
+    $isGoogleUser = str_starts_with($phone, 'google-');
     return [
         'id'        => (int) $row['id'],
         'firstName' => (string) $row['first_name'],
         'lastName'  => (string) $row['last_name'],
         'email'     => (string) $row['email'],
-        'phone'     => (string) $row['phone'],
+        'phone'     => $isGoogleUser ? '' : $phone,
         'role'      => (string) $row['user_type'],
         'userType'  => (string) $row['user_type'],
         'avatar'    => $row['avatar'] ?? null,
         'bio'       => $row['bio'] ?? null,
+        'isGoogleUser' => $isGoogleUser,
         'verificationStatus' => (string) ($row['verification_status'] ?? 'unverified'),
         'verificationDocument' => $row['verification_document'] ?? null,
         'verificationDocumentType' => $row['verification_document_type'] ?? null,

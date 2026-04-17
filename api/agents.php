@@ -20,7 +20,7 @@ if ($id > 0) {
         'SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.avatar, u.bio,
                 COUNT(p.id) AS listings_count
          FROM users u
-         LEFT JOIN properties p ON p.owner_id = u.id AND p.status = "approved" AND p.deleted_at IS NULL
+         LEFT JOIN properties p ON p.owner_id = u.id AND p.status = "available" AND p.deleted_at IS NULL
          WHERE u.id = ? AND u.user_type = "agent" AND u.deleted_at IS NULL
          GROUP BY u.id
          LIMIT 1'
@@ -48,7 +48,7 @@ $result = $mysqli->query(
     'SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.avatar, u.bio,
             COUNT(p.id) AS listings_count
      FROM users u
-     LEFT JOIN properties p ON p.owner_id = u.id AND p.status = "approved" AND p.deleted_at IS NULL
+     LEFT JOIN properties p ON p.owner_id = u.id AND p.status = "available" AND p.deleted_at IS NULL
      WHERE u.user_type = "agent" AND u.deleted_at IS NULL
      GROUP BY u.id
      ORDER BY listings_count DESC, u.first_name ASC'

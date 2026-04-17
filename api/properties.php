@@ -36,6 +36,7 @@ $userActiveFilterNoAlias = $userHasDeletedAt ? 'deleted_at IS NULL' : '1=1';
 
 if ($method === 'GET') {
     $user = optional_auth($mysqli);
+    expire_stale_reservations_and_release_properties($mysqli);
     $id   = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
     if ($id > 0) {
@@ -52,22 +53,31 @@ if ($method === 'GET') {
             send_json(404, ['ok' => false, 'error' => 'Property not found']);
         }
 
-        // Non-approved properties are only visible to admins and the owner
-        if (($row['status'] ?? '') !== 'approved') {
-            $isAdmin = $user && $user['user_type'] === 'administrator';
-            $isOwner = $user && (int)$user['id'] === (int)$row['owner_id'];
-            if (!$isAdmin && !$isOwner) {
+        // Non-visible lifecycle states stay private until admin approval.
+        if (!in_array((string) ($row['status'] ?? ''), property_visible_statuses(), true)) {
+            $isPrivileged = $user && in_array($user['user_type'], ['administrator', 'clerk'], true);
+            $isOwner = $user && (int) $user['id'] === (int) $row['owner_id'];
+            if (!$isPrivileged && !$isOwner) {
                 send_json(404, ['ok' => false, 'error' => 'Property not found']);
             }
         }
 
-        // Attach active reservation info
+        // Attach current reservation info
         $propData = build_property_row($row);
-        $activeRes = get_active_reservation($mysqli, $id);
-        $propData['reservation'] = $activeRes ? [
-            'id'        => (int) $activeRes['id'],
-            'userId'    => (int) $activeRes['user_id'],
-            'expiresAt' => (string) $activeRes['expires_at'],
+        $currentRes = get_current_reservation($mysqli, $id);
+        $propData['reservation'] = $currentRes ? [
+            'id' => (int) $currentRes['id'],
+            'userId' => (int) $currentRes['user_id'],
+            'userName' => (string) ($currentRes['user_name'] ?? ''),
+            'ownerId' => (int) ($currentRes['owner_id'] ?? 0),
+            'ownerName' => (string) ($currentRes['owner_name'] ?? ''),
+            'status' => (string) $currentRes['status'],
+            'expiresAt' => (string) $currentRes['expires_at'],
+            'notes' => $currentRes['notes'] ?? null,
+            'paymentIntent' => $currentRes['payment_intent'] ?? null,
+            'calculatorSnapshot' => decode_json_field($currentRes['calculator_snapshot'] ?? null),
+            'createdAt' => (string) ($currentRes['created_at'] ?? ''),
+            'updatedAt' => (string) ($currentRes['updated_at'] ?? ''),
         ] : null;
         send_json(200, ['ok' => true, 'data' => $propData]);
     }
@@ -93,14 +103,18 @@ if ($method === 'GET') {
     if ($user && $user['user_type'] === 'administrator') {
         if ($status && $status !== 'all') { $where[] = 'p.status = ?'; $params[] = $status; $types .= 's'; }
         if ($owner > 0) { $where[] = 'p.owner_id = ?'; $params[] = $owner; $types .= 'i'; }
-        // When no status filter (or status=all), admin sees everything for analytics
-        if (!$status) { $where[] = "p.status = 'approved'"; }
     } elseif ($user && in_array($user['user_type'], ['seller', 'agent'], true) && $owner === (int) $user['id']) {
         // Seller/agent viewing their own listings: show all statuses unless filtered
         $where[] = 'p.owner_id = ?'; $params[] = (int) $user['id']; $types .= 'i';
-        if ($status) { $where[] = 'p.status = ?'; $params[] = $status; $types .= 's'; }
+        if ($status && $status !== 'all') { $where[] = 'p.status = ?'; $params[] = $status; $types .= 's'; }
     } else {
-        $where[] = "p.status = 'approved'";
+        if ($status && $status !== 'all') {
+            $where[] = 'p.status = ?';
+            $params[] = $status;
+            $types .= 's';
+        } else {
+            $where[] = "p.status = 'available'";
+        }
     }
 
     // Full-text search
@@ -182,6 +196,7 @@ if ($method === 'POST') {
     }
 
     $body = get_json_body();
+    $submitForApproval = !array_key_exists('submitForApproval', $body) || (bool) $body['submitForApproval'];
 
     $required = ['title', 'address', 'city', 'province', 'price', 'beds', 'baths', 'propertyType', 'description'];
     foreach ($required as $field) {
@@ -201,7 +216,7 @@ if ($method === 'POST') {
     $sqft         = (int) ($body['sqft'] ?? 0);
     $sqm          = (int) ($body['sqm'] ?? 0);
     $propertyType = trim((string) $body['propertyType']);
-    $status       = $user['user_type'] === 'administrator' ? 'approved' : 'pending';
+    $status       = $submitForApproval ? 'pending_approval' : 'draft';
     $image        = sanitize_string((string) ($body['image'] ?? '/images/property1.jpg'));
     $images       = json_encode($body['images'] ?? [$image]);
     $description  = trim((string) $body['description']);
@@ -219,6 +234,9 @@ if ($method === 'POST') {
 
     if ($price <= 0) {
         send_json(422, ['ok' => false, 'error' => 'Price must be greater than zero']);
+    }
+    if ($proofDoc === '') {
+        send_json(422, ['ok' => false, 'error' => 'Proof of ownership or listing authority is required']);
     }
 
     $validTypes = ['house', 'condo', 'townhome', 'apartment', 'lot'];
@@ -243,11 +261,11 @@ if ($method === 'POST') {
     $newId = (int) $mysqli->insert_id;
     audit_log($mysqli, (int) $user['id'], 'CREATE', 'property', $newId, "Created listing: {$title}");
 
-    // Notify admins of new pending listing
-    if ($status === 'pending') {
+    // Notify admins of new listings awaiting approval.
+    if ($status === 'pending_approval') {
         $admins = $mysqli->query("SELECT id FROM users WHERE user_type = 'administrator' AND {$userActiveFilterNoAlias}");
         while ($admin = $admins->fetch_assoc()) {
-            create_notification($mysqli, (int) $admin['id'], 'system', 'New Listing Pending', "A new property \"{$title}\" requires approval.", 'property', $newId);
+            create_notification($mysqli, (int) $admin['id'], 'system', 'New Listing Pending Approval', "A new property \"{$title}\" requires approval.", 'property', $newId);
         }
     }
 
@@ -294,7 +312,10 @@ if ($method === 'PUT' || $method === 'PATCH') {
         if (!$isAdmin) {
             send_json(403, ['ok' => false, 'error' => 'Only administrators can approve/reject listings']);
         }
-        $newStatus = $action === 'approve' ? 'approved' : 'rejected';
+        if ((string) $existing['status'] !== 'pending_approval') {
+            send_json(422, ['ok' => false, 'error' => 'Only listings pending approval can be reviewed']);
+        }
+        $newStatus = $action === 'approve' ? 'available' : 'draft';
         $upd = $mysqli->prepare('UPDATE properties SET status = ? WHERE id = ?');
         $upd->bind_param('si', $newStatus, $propId);
         $upd->execute();
@@ -303,8 +324,11 @@ if ($method === 'PUT' || $method === 'PATCH') {
 
         // Notify property owner
         $ownerId = (int) $existing['owner_id'];
-        $statusLabel = $action === 'approve' ? 'approved' : 'rejected';
-        create_notification($mysqli, $ownerId, 'system', "Listing {$statusLabel}", "Your property \"{$existing['title']}\" has been {$statusLabel}.", 'property', $propId);
+        if ($action === 'approve') {
+            create_notification($mysqli, $ownerId, 'system', 'Listing Approved', "Your property \"{$existing['title']}\" is now available to buyers.", 'property', $propId);
+        } else {
+            create_notification($mysqli, $ownerId, 'system', 'Listing Returned to Draft', "Your property \"{$existing['title']}\" needs updates before it can be approved.", 'property', $propId);
+        }
 
         $sel->execute();
         $updated = $sel->get_result()->fetch_assoc();
@@ -334,11 +358,16 @@ if ($method === 'PUT' || $method === 'PATCH') {
     $pool         = (int) (bool) ($body['pool']       ?? $existing['pool']);
     $furnished    = (int) (bool) ($body['furnished']  ?? $existing['furnished']);
     $interestRate = isset($body['interestRate']) ? (float) $body['interestRate'] : (float) $existing['interest_rate'];
+    $submitForApproval = !array_key_exists('submitForApproval', $body) || (bool) $body['submitForApproval'];
 
-    // Non-admin edits revert status to pending
+    if (!$isAdmin && in_array((string) $existing['status'], ['reserved', 'under_offer', 'sold'], true)) {
+        send_json(422, ['ok' => false, 'error' => 'This listing cannot be edited while it is reserved, under offer, or sold']);
+    }
+
+    // Non-admin edits return the listing to the approval workflow.
     $status = $isAdmin
-        ? trim((string) ($body['status'] ?? $existing['status']))
-        : 'pending';
+        ? (string) $existing['status']
+        : ($submitForApproval ? 'pending_approval' : 'draft');
 
     $upd = $mysqli->prepare(
         'UPDATE properties SET title=?, address=?, city=?, province=?, zip_code=?, price=?, beds=?, baths=?,

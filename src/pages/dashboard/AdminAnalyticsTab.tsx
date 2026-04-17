@@ -4,9 +4,10 @@ import { getProperties, getUsers, getInquiries, getAppointments } from '../../li
 
 interface Stats {
   totalProperties: number;
-  approved: number;
-  pending: number;
-  rejected: number;
+  draft: number;
+  pendingApproval: number;
+  available: number;
+  reservedOrOffer: number;
   sold: number;
   totalUsers: number;
   totalInquiries: number;
@@ -28,9 +29,10 @@ export default function AdminAnalyticsTab() {
         ]);
         setStats({
           totalProperties: properties.items.length,
-          approved: properties.items.filter((p) => p.status === 'approved').length,
-          pending: properties.items.filter((p) => p.status === 'pending').length,
-          rejected: properties.items.filter((p) => p.status === 'rejected').length,
+          draft: properties.items.filter((p) => p.status === 'draft').length,
+          pendingApproval: properties.items.filter((p) => p.status === 'pending_approval').length,
+          available: properties.items.filter((p) => p.status === 'available').length,
+          reservedOrOffer: properties.items.filter((p) => p.status === 'reserved' || p.status === 'under_offer').length,
           sold: properties.items.filter((p) => p.status === 'sold').length,
           totalUsers: users.items.length,
           totalInquiries: inquiries.items.length,
@@ -53,9 +55,9 @@ export default function AdminAnalyticsTab() {
   ];
 
   const statusCards = [
-    { label: 'Approved', value: stats.approved, pct: stats.totalProperties > 0 ? Math.round(stats.approved / stats.totalProperties * 100) : 0, color: 'bg-green-400', bgColor: 'bg-green-500/15 text-green-400' },
-    { label: 'Pending', value: stats.pending, pct: stats.totalProperties > 0 ? Math.round(stats.pending / stats.totalProperties * 100) : 0, color: 'bg-yellow-400', bgColor: 'bg-yellow-500/15 text-yellow-400' },
-    { label: 'Rejected', value: stats.rejected, pct: stats.totalProperties > 0 ? Math.round(stats.rejected / stats.totalProperties * 100) : 0, color: 'bg-red-400', bgColor: 'bg-red-500/15 text-red-400' },
+    { label: 'Available', value: stats.available, pct: stats.totalProperties > 0 ? Math.round(stats.available / stats.totalProperties * 100) : 0, color: 'bg-green-400', bgColor: 'bg-green-500/15 text-green-400' },
+    { label: 'Pending Approval', value: stats.pendingApproval, pct: stats.totalProperties > 0 ? Math.round(stats.pendingApproval / stats.totalProperties * 100) : 0, color: 'bg-yellow-400', bgColor: 'bg-yellow-500/15 text-yellow-400' },
+    { label: 'Reserved / Offer', value: stats.reservedOrOffer, pct: stats.totalProperties > 0 ? Math.round(stats.reservedOrOffer / stats.totalProperties * 100) : 0, color: 'bg-orange-400', bgColor: 'bg-orange-500/15 text-orange-400' },
     { label: 'Sold', value: stats.sold, pct: stats.totalProperties > 0 ? Math.round(stats.sold / stats.totalProperties * 100) : 0, color: 'bg-blue-400', bgColor: 'bg-blue-500/15 text-blue-400' },
   ];
 

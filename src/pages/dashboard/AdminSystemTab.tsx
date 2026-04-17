@@ -32,7 +32,7 @@ export default function AdminSystemTab() {
     { icon: Key, text: 'Passwords hashed with bcrypt (cost 10)' },
     { icon: Lock, text: 'Session tokens with 7-day expiry' },
     { icon: Shield, text: 'Role-based access control (Admin, Agent, Seller, Buyer)' },
-    { icon: CheckCircle2, text: 'Property approval workflow (pending → approved / rejected)' },
+    { icon: CheckCircle2, text: 'Property lifecycle workflow (draft → pending approval → available → reserved → under offer → sold)' },
     { icon: Server, text: 'Audit logging for critical actions' },
     { icon: Globe, text: 'CORS headers on all API endpoints' },
   ];

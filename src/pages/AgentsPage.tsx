@@ -3,8 +3,9 @@ import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Home, Mail, Phone, User, Shield, Sparkles, MessageSquare, Send, X, CheckCircle, AlertCircle } from 'lucide-react';
 import type { Agent, Property } from '../data/philippineData';
-import { getAgents, getProperties, sendInquiry } from '../lib/api';
+import { getAgents, getProperties, sendInquiry, resolveAssetUrl } from '../lib/api';
 import { isLoggedIn } from '../lib/auth';
+import FloatingParticles from '../components/FloatingParticles';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -28,7 +29,7 @@ export default function AgentsPage() {
     setSelectedPropId(0);
     setPropsLoading(true);
     try {
-      const allProps = await getProperties({ status: 'approved' });
+      const allProps = await getProperties({ status: 'available' });
       const agentProps = allProps.items.filter((p) => p.ownerName === agent.name);
       setAgentProperties(agentProps);
       if (agentProps.length > 0) setSelectedPropId(agentProps[0].id);
@@ -84,22 +85,7 @@ export default function AgentsPage() {
   return (
     <div className="min-h-screen bg-navy pt-24 pb-16 px-6 lg:px-[4vw] relative overflow-hidden">
       {/* Background particles */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full bg-sand/10"
-            style={{
-              width: `${2 + Math.random() * 3}px`,
-              height: `${2 + Math.random() * 3}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `float-particle ${10 + Math.random() * 15}s linear infinite`,
-              animationDelay: `${Math.random() * 10}s`,
-            }}
-          />
-        ))}
-      </div>
+      <FloatingParticles count={12} className="fixed inset-0 pointer-events-none overflow-hidden z-0" />
 
       {/* Decorative gradient orbs */}
       <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-sand/[0.03] blur-[100px] pointer-events-none" />
@@ -138,21 +124,33 @@ export default function AgentsPage() {
                 {/* Avatar */}
                 <div className="aspect-square overflow-hidden relative img-reveal">
                   {agent.avatar ? (
-                    <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+                    <img src={resolveAssetUrl(agent.avatar)} alt={agent.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-sand/20 to-sand/5 flex items-center justify-center">
                       <span className="text-6xl font-display font-bold text-sand/30">{agent.name.charAt(0)}</span>
                     </div>
                   )}
                   {/* Hover overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-navy/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end justify-center pb-6">
-                    <span className="text-sand text-sm font-semibold flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isLoggedIn()) {
+                        openMessageModal(agent);
+                      } else {
+                        const card = document.getElementById(`agent-info-${agent.id}`);
+                        card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }}
+                    className="absolute inset-0 bg-gradient-to-t from-navy/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end justify-center pb-6 cursor-pointer"
+                    aria-label={`View profile of ${agent.name}`}
+                  >
+                    <span className="text-sand text-sm font-semibold flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full hover:bg-black/50 transition-colors">
                       <Sparkles className="w-3.5 h-3.5" /> View Profile
                     </span>
-                  </div>
+                  </button>
                 </div>
                 {/* Info */}
-                <div className="p-5 space-y-3">
+                <div id={`agent-info-${agent.id}`} className="p-5 space-y-3">
                   <h3 className="text-white font-semibold text-lg group-hover:text-sand transition-colors">{agent.name}</h3>
                   {agent.bio && (
                     <p className="text-gray-blue text-sm line-clamp-2">{agent.bio}</p>
@@ -187,7 +185,7 @@ export default function AgentsPage() {
       {msgAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !msgSending && setMsgAgent(null)}>
           <div
-            className="bg-navy-light border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+            className="bg-[#0d2d4a] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -195,7 +193,7 @@ export default function AgentsPage() {
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sand/30 to-sand/10 flex items-center justify-center text-sand font-bold text-sm border border-sand/20">
                   {msgAgent.avatar ? (
-                    <img src={msgAgent.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                    <img src={resolveAssetUrl(msgAgent.avatar)} alt="" className="w-full h-full rounded-full object-cover" />
                   ) : (
                     msgAgent.name.charAt(0)
                   )}

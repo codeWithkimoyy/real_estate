@@ -96,7 +96,11 @@ if (!is_dir($uploadDir)) {
 // Write .htaccess to prevent direct execution if served by Apache
 $htaccess = $uploadDir . '/.htaccess';
 if (!file_exists($htaccess)) {
-    file_put_contents($htaccess, "Options -Indexes\nRemoveHandler .php .phtml .php3 .php4 .php5\nForceType application/octet-stream\n<FilesMatch \"\\.(?:php|phtml|php[345])$\">\n  Require all denied\n</FilesMatch>");
+    try {
+        file_put_contents($htaccess, "Options -Indexes\nRemoveHandler .php .phtml .php3 .php4 .php5\nForceType application/octet-stream\n<FilesMatch \"\\.(?:php|phtml|php[345])$\">\n  Require all denied\n</FilesMatch>");
+    } catch (Throwable $e) {
+        error_log('upload.php: failed to write .htaccess in upload directory: ' . $e->getMessage());
+    }
 }
 
 $filename = bin2hex(random_bytes(16)) . '.' . $normalizedExt;
@@ -106,20 +110,44 @@ if (!move_uploaded_file($file['tmp_name'], $destPath)) {
     send_json(500, ['ok' => false, 'error' => 'Failed to save file']);
 }
 
-// Set restrictive permissions
-chmod($destPath, 0640);
+// Set restrictive permissions (best effort; do not fail successful upload)
+try {
+    chmod($destPath, 0640);
+} catch (Throwable $e) {
+    error_log('upload.php: failed to chmod uploaded file: ' . $e->getMessage());
+}
 
-// Return a URL that goes through a serving endpoint (or public path for backward compat)
-$publicUrl = '/images/uploads/' . $filename;
+// Return a URL aligned with this repository layout (assets are served from /public).
+$publicUrl = '/public/images/uploads/' . $filename;
 
 // If storage is outside public, also copy to public for serving (backward compat)
 $publicDir = __DIR__ . '/../public/images/uploads';
 if (!is_dir($publicDir)) {
-    mkdir($publicDir, 0755, true);
+    try {
+        if (!mkdir($publicDir, 0755, true) && !is_dir($publicDir)) {
+            error_log('upload.php: failed to create public upload directory: ' . $publicDir);
+        }
+    } catch (Throwable $e) {
+        error_log('upload.php: exception creating public upload directory: ' . $e->getMessage());
+    }
 }
-copy($destPath, $publicDir . '/' . $filename);
+$publicPath = $publicDir . '/' . $filename;
 
-audit_log($mysqli, (int) $authUser['id'], 'UPLOAD', 'file', null, "Uploaded: {$filename} ({$mime}, {$file['size']} bytes)");
+// Avoid noisy warnings (which break JSON) if upload_dir already points to public path.
+$destReal = realpath($destPath) ?: $destPath;
+$publicReal = realpath($publicPath) ?: $publicPath;
+if ($destReal !== $publicReal) {
+    if (!@copy($destPath, $publicPath)) {
+        error_log('upload.php: failed to copy uploaded file to public path: ' . $publicPath);
+    }
+}
+
+try {
+    audit_log($mysqli, (int) $authUser['id'], 'UPLOAD', 'file', null, "Uploaded: {$filename} ({$mime}, {$file['size']} bytes)");
+} catch (Throwable $e) {
+    // Audit failures should never turn a successful upload into an API error.
+    error_log('upload.php: audit log failed: ' . $e->getMessage());
+}
 
 send_json(200, [
     'ok'   => true,

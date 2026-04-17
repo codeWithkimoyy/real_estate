@@ -10,11 +10,13 @@ const navIcons: Record<string, typeof Home> = {
 };
 
 export default function Navigation() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuLocationSignature, setMenuLocationSignature] = useState<string | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [loggedIn, setLoggedIn] = useState(isLoggedIn());
   const location = useLocation();
   const navigate = useNavigate();
+  const locationSignature = `${location.pathname}${location.search}${location.hash}`;
+  const isMenuOpen = menuLocationSignature === locationSignature;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -25,20 +27,26 @@ export default function Navigation() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Close menu when route changes
+  // Lock body scroll when mobile menu is open
   useEffect(() => {
-    setIsMenuOpen(false);
-  }, [location]);
+    if (isMenuOpen) {
+      document.body.classList.add('menu-open');
+    } else {
+      document.body.classList.remove('menu-open');
+    }
+    return () => document.body.classList.remove('menu-open');
+  }, [isMenuOpen]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAuthChange(() => setLoggedIn(isLoggedIn()));
-    setLoggedIn(isLoggedIn());
-    return unsubscribe;
+    return subscribeAuthChange(() => setLoggedIn(isLoggedIn()));
   }, []);
+
+  const openMobileMenu = () => setMenuLocationSignature(locationSignature);
+  const closeMobileMenu = () => setMenuLocationSignature(null);
 
   const handleLogout = async () => {
     await logoutUser();
-    setIsMenuOpen(false);
+    closeMobileMenu();
     navigate('/');
   };
 
@@ -174,8 +182,11 @@ export default function Navigation() {
             
             {/* Mobile Menu Button */}
             <button 
-              onClick={() => setIsMenuOpen(true)}
+              onClick={openMobileMenu}
               className="flex items-center gap-2 text-white hover:text-sand transition-colors lg:hidden"
+              aria-label="Open navigation menu"
+              aria-expanded={isMenuOpen}
+              aria-controls="mobile-drawer"
             >
               <span className="micro-label hidden sm:inline">MENU</span>
               <Menu className="w-5 h-5" />
@@ -188,15 +199,20 @@ export default function Navigation() {
       {isMenuOpen && (
         <div 
           className="fixed inset-0 z-[199] bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setIsMenuOpen(false)}
+          onClick={closeMobileMenu}
         />
       )}
 
       {/* ── Mobile Sidebar Drawer ──────────────────────── */}
       <aside
-        className={`fixed top-0 right-0 z-[200] h-full w-80 bg-gradient-to-b from-[#0c1f35] to-[#081729] border-l border-white/[0.06] flex flex-col transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] shadow-2xl shadow-black/50 lg:hidden ${
+        id="mobile-drawer"
+        role="dialog"
+        aria-label="Navigation menu"
+        aria-hidden={!isMenuOpen}
+        className={`fixed top-0 right-0 z-[200] h-full w-80 bg-gradient-to-b from-[#0c1f35] to-[#081729] border-l border-white/[0.06] flex flex-col transition-transform duration-300 shadow-2xl shadow-black/50 lg:hidden ${
           isMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
+        style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.06]">
@@ -205,9 +221,9 @@ export default function Navigation() {
             className="group"
             logoClassName="w-10 h-10"
             textClassName="text-lg font-display font-bold text-gradient-animate tracking-tight"
-            onClick={() => setIsMenuOpen(false)}
+            onClick={closeMobileMenu}
           />
-          <button onClick={() => setIsMenuOpen(false)} className="p-2 rounded-lg text-gray-blue hover:text-white hover:bg-white/10 transition-all group">
+          <button onClick={closeMobileMenu} className="p-2 rounded-lg text-gray-blue hover:text-white hover:bg-white/10 transition-all group" aria-label="Close navigation menu">
             <X className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
           </button>
         </div>

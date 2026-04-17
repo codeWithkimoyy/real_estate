@@ -114,12 +114,15 @@ if ($method === 'POST') {
     }
 
     // Get property owner as the agent
-    $pstmt = $mysqli->prepare('SELECT owner_id, title FROM properties WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+    $pstmt = $mysqli->prepare('SELECT owner_id, title, status FROM properties WHERE id = ? AND deleted_at IS NULL LIMIT 1');
     $pstmt->bind_param('i', $propertyId);
     $pstmt->execute();
     $prop = $pstmt->get_result()->fetch_assoc();
     if (!$prop) {
         send_json(404, ['ok' => false, 'error' => 'Property not found']);
+    }
+    if (!in_array((string) ($prop['status'] ?? ''), ['available', 'reserved'], true)) {
+        send_json(422, ['ok' => false, 'error' => 'This property is not open for new appointments']);
     }
 
     $uid     = (int) $user['id'];
@@ -127,6 +130,20 @@ if ($method === 'POST') {
 
     // Block if reserved by someone else
     check_reservation_lock($mysqli, $propertyId, $uid);
+
+    if ($appointmentType === 'walk_in_payment' && !get_buyer_reservation($mysqli, $propertyId, $uid, ['pending', 'active'])) {
+        send_json(422, ['ok' => false, 'error' => 'A reservation is required before scheduling a walk-in payment']);
+    }
+
+    // Prevent duplicate: same user + property + date + type still pending/confirmed
+    $dupChk = $mysqli->prepare(
+        "SELECT id FROM appointments WHERE user_id = ? AND property_id = ? AND appointment_date = ? AND appointment_type = ? AND status IN ('pending','confirmed') AND deleted_at IS NULL LIMIT 1"
+    );
+    $dupChk->bind_param('iiss', $uid, $propertyId, $date, $appointmentType);
+    $dupChk->execute();
+    if ($dupChk->get_result()->fetch_assoc()) {
+        send_json(409, ['ok' => false, 'error' => 'You already have a pending or confirmed appointment for this property on this date']);
+    }
 
     $notesVal = $notes !== '' ? $notes : null;
 
@@ -171,9 +188,10 @@ if ($method === 'PATCH') {
     }
 
     $uid     = (int) $user['id'];
-    $isAdmin = $user['user_type'] === 'administrator' || $user['user_type'] === 'clerk';
-    $isOwner = (int) $existing['user_id'] === $uid || (int) $existing['agent_id'] === $uid;
-    if (!$isAdmin && !$isOwner) {
+    $isPrivileged = $user['user_type'] === 'administrator' || $user['user_type'] === 'clerk';
+    $isBuyer = (int) $existing['user_id'] === $uid;
+    $isAgent = (int) $existing['agent_id'] === $uid;
+    if (!$isPrivileged && !$isBuyer && !$isAgent) {
         send_json(403, ['ok' => false, 'error' => 'Insufficient permissions']);
     }
 
@@ -181,6 +199,13 @@ if ($method === 'PATCH') {
     $valid     = ['pending', 'confirmed', 'cancelled', 'completed'];
     if (!in_array($newStatus, $valid, true)) {
         send_json(422, ['ok' => false, 'error' => 'Invalid status']);
+    }
+
+    if (in_array($newStatus, ['confirmed', 'completed'], true) && !$isPrivileged && !$isAgent) {
+        send_json(403, ['ok' => false, 'error' => 'Only the assigned agent, clerk, or administrator can confirm or complete this appointment']);
+    }
+    if ($newStatus === 'completed' && $existing['appointment_type'] === 'walk_in_payment' && !$isPrivileged) {
+        send_json(403, ['ok' => false, 'error' => 'Walk-in payment appointments can only be completed by clerks or administrators']);
     }
 
     $upd = $mysqli->prepare('UPDATE appointments SET status = ? WHERE id = ?');

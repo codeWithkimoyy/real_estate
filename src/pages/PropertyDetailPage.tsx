@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import gsap from 'gsap';
 import {
@@ -9,11 +9,30 @@ import {
 } from 'lucide-react';
 import {
   formatFullPrice,
+  type Appointment,
+  type DownPaymentCalculation,
+  type Offer,
   type Property,
   type Reservation,
 } from '../data/philippineData';
-import { getPropertyById, sendInquiry, createAppointment, addFavorite, removeFavorite, getFavorites, createPayment, uploadFile, getReservations, createReservation, updateReservationStatus } from '../lib/api';
+import {
+  getPropertyById,
+  sendInquiry,
+  createAppointment,
+  addFavorite,
+  removeFavorite,
+  getFavorites,
+  createPayment,
+  uploadFile,
+  getReservations,
+  createReservation,
+  updateReservationStatus,
+  getAppointments,
+  getOffers,
+  createOffer,
+} from '../lib/api';
 import { getStoredAuth, isLoggedIn } from '../lib/auth';
+import FloatingParticles from '../components/FloatingParticles';
 
 export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +44,8 @@ export default function PropertyDetailPage() {
   const [inquiryMsg, setInquiryMsg] = useState('');
   const [inquirySending, setInquirySending] = useState(false);
   const [inquiryStatus, setInquiryStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [viewingAppointment, setViewingAppointment] = useState<Appointment | null>(null);
+  const [completedViewing, setCompletedViewing] = useState(false);
   const [apptDate, setApptDate] = useState('');
   const [apptTime, setApptTime] = useState('');
   const [apptNotes, setApptNotes] = useState('');
@@ -46,7 +67,7 @@ export default function PropertyDetailPage() {
   const [calcPrice, setCalcPrice] = useState('');
   const [calcDownPct, setCalcDownPct] = useState('');
   const [calcTerm, setCalcTerm] = useState('');
-  const [calcResult, setCalcResult] = useState<{ loanAmount: number; monthly: number; totalPayment: number; totalInterest: number; interestRate: number } | null>(null);
+  const [calcResult, setCalcResult] = useState<DownPaymentCalculation | null>(null);
   // Payment state - walk-in vs online
   const [payChannel, setPayChannel] = useState<'walk_in' | 'online'>('online');
   // Walk-in scheduling
@@ -55,7 +76,8 @@ export default function PropertyDetailPage() {
   const [walkInSending, setWalkInSending] = useState(false);
   const [walkInStatus, setWalkInStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [walkInReceipt, setWalkInReceipt] = useState<{
-    date: string; time: string; property: string; seller: string; buyer: string; submittedAt: string;
+    id: number; date: string; time: string; property: string; seller: string; buyer: string; submittedAt: string;
+    referenceNo: string | null; amount: number; paymentType: string;
   } | null>(null);
   // Reservation state
   const [reservation, setReservation] = useState<Reservation | null>(null);
@@ -63,6 +85,12 @@ export default function PropertyDetailPage() {
   const [reserveNotes, setReserveNotes] = useState('');
   const [reserving, setReserving] = useState(false);
   const [reserveStatus, setReserveStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  // Offer state
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerMessage, setOfferMessage] = useState('');
+  const [offerSending, setOfferSending] = useState(false);
+  const [offerStatus, setOfferStatus] = useState<{ ok: boolean; text: string } | null>(null);
   // Receipt state
   const [payReceipt, setPayReceipt] = useState<{
     id: number; propertyTitle: string; amount: number; method: string; type: string;
@@ -72,38 +100,99 @@ export default function PropertyDetailPage() {
   const receiptRef = useRef<HTMLDivElement>(null);
   const walkInReceiptRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const loadPropertyContext = useCallback(async (showSpinner = false) => {
     if (!id) return;
-    const load = async () => {
-      try {
-        const data = await getPropertyById(Number(id));
-        setProperty(data);
-        // Check reservation info from property response (works for all users)
-        if ((data as any).reservation) {
-          const r = (data as any).reservation;
-          setReservation({ id: r.id, userId: r.userId, expiresAt: r.expiresAt, status: r.status ?? 'active' } as Reservation);
-        }
-        // Check if this property is favorited
-        if (isLoggedIn()) {
-          try {
-            const favs = await getFavorites();
-            setIsFavorited(favs.some((f) => f.propertyId === Number(id)));
-          } catch { /* not critical */ }
-          // Load full active/pending reservation details (overrides the basic info above)
-          try {
-            const res = await getReservations({ propertyId: Number(id) });
-            const current = res.items.find((r) => r.status === 'active' || r.status === 'pending');
-            if (current) setReservation(current);
-          } catch { /* not critical */ }
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Property not found');
-      } finally {
+    if (showSpinner) {
+      setLoading(true);
+    }
+
+    try {
+      const propertyId = Number(id);
+      const data = await getPropertyById(propertyId);
+      setProperty(data);
+      setError('');
+      setCalcPrice(String(data.price));
+
+      const propertyReservation = data.reservation ? {
+        id: data.reservation.id,
+        propertyId: data.id,
+        propertyTitle: data.title,
+        propertyImage: data.image,
+        propertyAddress: data.address,
+        propertyCity: data.city,
+        propertyProvince: data.province,
+        userId: data.reservation.userId,
+        userName: data.reservation.userName ?? '',
+        ownerName: data.reservation.ownerName ?? data.ownerName,
+        ownerId: data.reservation.ownerId ?? data.ownerId,
+        status: data.reservation.status ?? 'active',
+        expiresAt: data.reservation.expiresAt,
+        notes: data.reservation.notes ?? null,
+        paymentIntent: data.reservation.paymentIntent ?? null,
+        calculatorSnapshot: data.reservation.calculatorSnapshot ?? null,
+        createdAt: data.reservation.createdAt ?? data.createdAt,
+        updatedAt: data.reservation.updatedAt ?? data.updatedAt,
+      } satisfies Reservation : null;
+      setReservation(propertyReservation);
+
+      if (!isLoggedIn()) {
+        setIsFavorited(false);
+        setViewingAppointment(null);
+        setCompletedViewing(false);
+        setOffers([]);
+        return;
+      }
+
+      const auth = getStoredAuth();
+      const results = await Promise.allSettled([
+        getFavorites(),
+        getReservations({ propertyId }),
+        getAppointments(),
+        getOffers({ propertyId }),
+      ]);
+
+      const favoritesResult = results[0];
+      if (favoritesResult.status === 'fulfilled') {
+        setIsFavorited(favoritesResult.value.some((favorite) => favorite.propertyId === propertyId));
+      }
+
+      const reservationResult = results[1];
+      if (reservationResult.status === 'fulfilled') {
+        const currentReservation = reservationResult.value.items.find((item) => item.status === 'active' || item.status === 'pending') ?? null;
+        setReservation(currentReservation ?? propertyReservation);
+      }
+
+      const appointmentsResult = results[2];
+      if (appointmentsResult.status === 'fulfilled' && auth?.user.role === 'buyer') {
+        const viewingHistory = appointmentsResult.value.items
+          .filter((appointment) => appointment.propertyId === propertyId && appointment.appointmentType === 'viewing')
+          .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+        const latestViewing = viewingHistory[0] ?? null;
+        setViewingAppointment(latestViewing);
+        setCompletedViewing(viewingHistory.some((appointment) => appointment.status === 'completed'));
+      } else {
+        setViewingAppointment(null);
+        setCompletedViewing(false);
+      }
+
+      const offersResult = results[3];
+      if (offersResult.status === 'fulfilled') {
+        setOffers(offersResult.value.items);
+      } else {
+        setOffers([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Property not found');
+    } finally {
+      if (showSpinner) {
         setLoading(false);
       }
-    };
-    void load();
+    }
   }, [id]);
+
+  useEffect(() => {
+    void loadPropertyContext(true);
+  }, [loadPropertyContext]);
 
   const toggleFavorite = async () => {
     if (!property || !isLoggedIn()) return;
@@ -122,22 +211,29 @@ export default function PropertyDetailPage() {
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!property) return;
+    if (!property || !reservation) return;
     setPaySending(true);
     setPayStatus(null);
     setPayReceipt(null);
     try {
       const result = await createPayment({
         propertyId: property.id,
+        reservationId: reservation.id,
         amount: Number(payAmount),
+        paymentChannel: 'online',
         paymentMethod: payMethod,
         paymentType: payType,
         referenceNo: payRef || undefined,
         notes: payNotes || undefined,
         proofUrl: payProof || undefined,
       });
-      setPayStatus({ ok: true, text: 'Payment submitted successfully! The seller will review and confirm.' });
-      // Build receipt
+      const isInstantPayment = result.status === 'paid';
+      setPayStatus({
+        ok: true,
+        text: isInstantPayment
+          ? 'Payment verified successfully. Your reservation flow has been updated right away.'
+          : 'Payment submitted successfully. A clerk still needs to validate it.',
+      });
       const auth = getStoredAuth();
       setPayReceipt({
         id: result.id,
@@ -154,6 +250,7 @@ export default function PropertyDetailPage() {
       setPayRef('');
       setPayNotes('');
       setPayProof('');
+      await loadPropertyContext();
     } catch (err) {
       setPayStatus({ ok: false, text: err instanceof Error ? err.message : 'Failed to submit payment' });
     } finally {
@@ -175,7 +272,7 @@ export default function PropertyDetailPage() {
   };
 
   const handleReserve = async () => {
-    if (!property) return;
+    if (!property || !calcResult) return;
     setReserving(true);
     setReserveStatus(null);
     try {
@@ -183,9 +280,17 @@ export default function PropertyDetailPage() {
         propertyId: property.id,
         days: Number(reserveDays) || 7,
         notes: reserveNotes || undefined,
+        paymentIntent: payChannel,
+        calculatorSnapshot: calcResult,
       });
       setReservation(res);
-      setReserveStatus({ ok: true, text: `Reservation request submitted! The property owner will confirm it shortly.` });
+      setReserveStatus({
+        ok: true,
+        text: payChannel === 'online'
+          ? 'Reservation created. Complete your online payment to activate it.'
+          : 'Reservation created. Bring your reference to the walk-in payment schedule so a clerk can validate it.',
+      });
+      await loadPropertyContext();
     } catch (err) {
       setReserveStatus({ ok: false, text: err instanceof Error ? err.message : 'Failed to reserve' });
     } finally {
@@ -199,7 +304,36 @@ export default function PropertyDetailPage() {
       await updateReservationStatus(reservation.id, 'cancelled');
       setReservation(null);
       setReserveStatus({ ok: true, text: 'Reservation cancelled.' });
+      setPayStatus(null);
+      setOfferStatus(null);
+      setOffers([]);
+      await loadPropertyContext();
     } catch { /* ignore */ }
+  };
+
+  const handleOfferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!property || !reservation) return;
+
+    setOfferSending(true);
+    setOfferStatus(null);
+    try {
+      const createdOffer = await createOffer({
+        propertyId: property.id,
+        reservationId: reservation.id,
+        amount: Number(offerAmount),
+        message: offerMessage || undefined,
+      });
+      setOffers((current) => [createdOffer, ...current]);
+      setOfferStatus({ ok: true, text: 'Offer submitted successfully. The seller can now accept, reject, or counter it.' });
+      setOfferAmount('');
+      setOfferMessage('');
+      await loadPropertyContext();
+    } catch (err) {
+      setOfferStatus({ ok: false, text: err instanceof Error ? err.message : 'Failed to submit offer' });
+    } finally {
+      setOfferSending(false);
+    }
   };
 
   useEffect(() => {
@@ -252,6 +386,108 @@ export default function PropertyDetailPage() {
     }
   };
 
+  const handleWalkInSchedule = async () => {
+    if (!property || !reservation || !walkInDate || !walkInTime) return;
+
+    setWalkInSending(true);
+    setWalkInStatus(null);
+    setWalkInReceipt(null);
+
+    try {
+      const formattedDate = new Date(`${walkInDate}T00:00`).toLocaleDateString('en-PH', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+      const appointment = await createAppointment({
+        propertyId: property.id,
+        appointmentDate: walkInDate,
+        appointmentTime: walkInTime,
+        notes: `Walk-in payment for ${payType.replace('_', ' ')}`,
+        appointmentType: 'walk_in_payment',
+      });
+
+      const payment = await createPayment({
+        propertyId: property.id,
+        reservationId: reservation.id,
+        amount: Number(payAmount),
+        paymentChannel: 'walk_in',
+        paymentMethod: 'cash',
+        paymentType: payType,
+        notes: payNotes || `Walk-in payment scheduled for ${formattedDate} at ${walkInTime}`,
+      });
+
+      const auth = getStoredAuth();
+      setWalkInReceipt({
+        id: appointment.id,
+        date: formattedDate,
+        time: walkInTime,
+        property: property.title,
+        seller: property.ownerName,
+        buyer: auth ? `${auth.user.firstName} ${auth.user.lastName}` : 'N/A',
+        submittedAt: new Date().toLocaleString(),
+        referenceNo: payment.referenceNo,
+        amount: payment.amount,
+        paymentType: payment.paymentType,
+      });
+      setWalkInStatus({
+        ok: true,
+        text: 'Walk-in payment schedule created. A clerk must validate the cash payment before the reservation becomes active.',
+      });
+      await loadPropertyContext();
+    } catch (err) {
+      setWalkInStatus({ ok: false, text: err instanceof Error ? err.message : 'Failed to submit walk-in payment' });
+    } finally {
+      setWalkInSending(false);
+    }
+  };
+
+  useEffect(() => {
+    if (reservation?.paymentIntent) {
+      setPayChannel(reservation.paymentIntent);
+    }
+  }, [reservation?.paymentIntent]);
+
+  useEffect(() => {
+    if (!property) return;
+    if (property.status === 'under_offer') {
+      setPayType('full_payment');
+      return;
+    }
+    if (payType === 'full_payment') {
+      setPayType('reservation');
+    }
+  }, [property, payType]);
+
+  useEffect(() => {
+    if (!property) return;
+
+    const snapshot = calcResult ?? reservation?.calculatorSnapshot ?? null;
+    let nextAmount = 0;
+
+    if (payType === 'full_payment') {
+      nextAmount = snapshot?.loanAmount ?? 0;
+    } else if (payType === 'down_payment') {
+      nextAmount = snapshot?.downPaymentAmount ?? 0;
+    } else if (property.reservationFee && property.reservationFee > 0) {
+      nextAmount = property.reservationFee;
+    } else {
+      nextAmount = snapshot?.downPaymentAmount ?? 0;
+    }
+
+    if (nextAmount > 0) {
+      setPayAmount(String(nextAmount));
+    }
+  }, [calcResult, payType, property, reservation?.calculatorSnapshot]);
+
+  useEffect(() => {
+    if (property?.price && property.price > 0) {
+      setOfferAmount((current) => current || String(property.price));
+    }
+  }, [property?.price]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-navy flex items-center justify-center">
@@ -295,15 +531,22 @@ export default function PropertyDetailPage() {
     const term = Number(calcTerm);
     const rate = property.interestRate || 6.5;
     if (price <= 0 || downPct < 0 || downPct >= 100 || term <= 0) return;
-    const loanAmount = Math.round(price * (1 - downPct / 100));
+    const downPaymentAmount = Math.round(price * (downPct / 100));
+    const loanAmount = price - downPaymentAmount;
     const monthly = calcMonthly(loanAmount, rate, term);
-    const totalPayment = monthly * term * 12;
-    const totalInterest = totalPayment - loanAmount;
-    setCalcResult({ loanAmount, monthly, totalPayment, totalInterest, interestRate: rate });
+    setCalcResult({
+      price,
+      downPaymentPercentage: downPct,
+      loanTermYears: term,
+      interestRate: rate,
+      downPaymentAmount,
+      loanAmount,
+      monthlyPayment: monthly,
+    });
   };
 
   const handleResetCalc = () => {
-    setCalcPrice('');
+    setCalcPrice(String(property.price));
     setCalcDownPct('');
     setCalcTerm('');
     setCalcResult(null);
@@ -339,27 +582,39 @@ export default function PropertyDetailPage() {
   const auth = getStoredAuth();
   const isBuyer = auth?.user.role === 'buyer';
   const isOwner = auth?.user.id === property.ownerId;
+  const isReservationOwner = reservation?.userId === auth?.user.id;
   const isReservedByOther = !!(reservation && (!auth || (reservation.userId !== auth.user.id && !isOwner)));
+  const calculatorSnapshot = calcResult ?? reservation?.calculatorSnapshot ?? null;
+  const paymentIntentLocked = !!reservation && isReservationOwner && !!reservation.paymentIntent && ['pending', 'active'].includes(reservation.status);
+  const canSendInquiry = loggedIn && !isOwner && isBuyer && ['available', 'reserved'].includes(property.status) && !isReservedByOther;
+  const canScheduleViewing = loggedIn && !isOwner && isBuyer && ['available', 'reserved'].includes(property.status) && !isReservedByOther;
+  const canReserve = isBuyer && property.status === 'available' && !reservation && completedViewing && !!calcResult;
+  const canManageReservation = !!reservation && isReservationOwner && ['pending', 'active'].includes(reservation.status);
+  const canShowPaymentPanel = !!reservation && isReservationOwner && ['pending', 'active'].includes(reservation.status) && ['reserved', 'under_offer'].includes(property.status);
+  const walkInReady = canShowPaymentPanel && reservation?.paymentIntent === 'walk_in' && property.status === 'reserved';
+  const onlineReady = canShowPaymentPanel && reservation?.paymentIntent === 'online';
+  const availablePaymentTypes = property.status === 'under_offer'
+    ? [{ value: 'full_payment', label: 'Remaining Balance' }]
+    : [
+      { value: 'reservation', label: property.reservationFee ? 'Reservation Fee' : 'Reservation Payment' },
+      { value: 'down_payment', label: 'Down Payment' },
+    ];
+  const activeOffer = reservation ? offers.find((offer) => offer.reservationId === reservation.id && (offer.status === 'pending' || offer.status === 'countered')) ?? null : null;
+  const offerHistory = reservation ? offers.filter((offer) => offer.reservationId === reservation.id) : [];
+  const canSubmitOffer = property.status === 'reserved' && reservation?.status === 'active' && isReservationOwner && !activeOffer;
+  const propertyStatusMeta: Record<Property['status'], { label: string; badge: string }> = {
+    draft: { label: 'Draft', badge: 'bg-slate-500/90 text-white shadow-slate-500/20' },
+    pending_approval: { label: 'Pending Approval', badge: 'bg-yellow-500/90 text-white shadow-yellow-500/20' },
+    available: { label: 'Available', badge: 'bg-green-500/90 text-white shadow-green-500/20' },
+    reserved: { label: 'Reserved', badge: 'bg-orange-500/90 text-white shadow-orange-500/20' },
+    under_offer: { label: 'Under Offer', badge: 'bg-blue-500/90 text-white shadow-blue-500/20' },
+    sold: { label: 'Sold', badge: 'bg-red-500/90 text-white shadow-red-500/20' },
+  };
 
   return (
     <div className="min-h-screen bg-navy pt-20 relative overflow-hidden" ref={contentRef}>
       {/* Background elements */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full bg-sand/10"
-            style={{
-              width: `${2 + Math.random() * 3}px`,
-              height: `${2 + Math.random() * 3}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `float-particle ${10 + Math.random() * 15}s linear infinite`,
-              animationDelay: `${Math.random() * 10}s`,
-            }}
-          />
-        ))}
-      </div>
+      <FloatingParticles count={8} className="fixed inset-0 pointer-events-none overflow-hidden z-0" />
       <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-sand/[0.02] blur-[100px] pointer-events-none" />
 
       {/* Back */}
@@ -404,8 +659,16 @@ export default function PropertyDetailPage() {
             </div>
           </div>
         )}
+        {property.status === 'under_offer' && (
+          <div className="max-w-7xl mx-auto mb-6">
+            <div className="bg-blue-500/15 border border-blue-500/30 rounded-xl p-4 flex items-center gap-3">
+              <span className="text-blue-400 text-2xl font-display font-bold">UNDER OFFER</span>
+              <span className="text-blue-300/80 text-sm">An offer has been accepted. Only the reserved buyer can continue with closing payments.</span>
+            </div>
+          </div>
+        )}
         {/* RESERVED banner */}
-        {isReservedByOther && property.status !== 'sold' && (
+        {isReservedByOther && !['sold', 'under_offer'].includes(property.status) && (
           <div className="max-w-7xl mx-auto mb-6">
             <div className="bg-yellow-500/15 border border-yellow-500/30 rounded-xl p-4 flex items-center gap-3">
               <span className="text-yellow-400 text-2xl font-display font-bold">RESERVED</span>
@@ -419,13 +682,8 @@ export default function PropertyDetailPage() {
             {/* Header */}
             <div className="detail-fade">
               <div className="flex flex-wrap items-center gap-3 mb-3">
-                <span className={`px-3 py-1.5 text-xs font-semibold rounded-lg backdrop-blur-sm shadow-lg ${
-                  property.status === 'approved' ? 'bg-green-500/90 text-white shadow-green-500/20'
-                  : property.status === 'sold' ? 'bg-red-500/90 text-white shadow-red-500/20'
-                  : property.status === 'pending' ? 'bg-yellow-500/90 text-white shadow-yellow-500/20'
-                  : 'bg-red-500/90 text-white shadow-red-500/20'
-                }`}>
-                  {property.status === 'approved' ? 'For Sale' : property.status.charAt(0).toUpperCase() + property.status.slice(1)}
+                <span className={`px-3 py-1.5 text-xs font-semibold rounded-lg backdrop-blur-sm shadow-lg ${propertyStatusMeta[property.status].badge}`}>
+                  {propertyStatusMeta[property.status].label}
                 </span>
                 <span className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white/10 text-white capitalize border border-white/[0.06]">
                   {property.propertyType}
@@ -564,18 +822,13 @@ export default function PropertyDetailPage() {
                         <RotateCcw className="w-3 h-3" /> Reset
                       </button>
                     </div>
-                    <p className="text-gray-blue text-sm mb-5">Enter the property price, your desired down payment percentage, and loan term. The interest rate is set by the seller.</p>
+                    <p className="text-gray-blue text-sm mb-5">This calculation is required before reservation and payment. The property price is fixed, while you choose the down payment percentage and loan term.</p>
                     <div className="space-y-4">
                       <div>
-                        <label className="text-gray-blue text-sm mb-1.5 block font-medium">Property Price (₱)</label>
-                        <input
-                          type="number"
-                          value={calcPrice}
-                          onChange={(e) => setCalcPrice(e.target.value)}
-                          placeholder={`e.g. ${property.price.toLocaleString()}`}
-                          min="1"
-                          className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
-                        />
+                        <label className="text-gray-blue text-sm mb-1.5 block font-medium">Property Price (fixed)</label>
+                        <div className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl text-white font-semibold cursor-not-allowed">
+                          {formatFullPrice(property.price)}
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
@@ -628,11 +881,11 @@ export default function PropertyDetailPage() {
                       <dl className="space-y-3 text-sm">
                         <div className="flex justify-between py-2 border-b border-white/[0.06]">
                           <dt className="text-gray-blue">Property Price</dt>
-                          <dd className="text-white font-medium">{formatFullPrice(Number(calcPrice))}</dd>
+                          <dd className="text-white font-medium">{formatFullPrice(calcResult.price)}</dd>
                         </div>
                         <div className="flex justify-between py-2 border-b border-white/[0.06]">
-                          <dt className="text-gray-blue">Down Payment ({calcDownPct}%)</dt>
-                          <dd className="text-white font-medium">{formatFullPrice(Math.round(Number(calcPrice) * Number(calcDownPct) / 100))}</dd>
+                          <dt className="text-gray-blue">Down Payment ({calcResult.downPaymentPercentage}%)</dt>
+                          <dd className="text-white font-medium">{formatFullPrice(calcResult.downPaymentAmount)}</dd>
                         </div>
                         <div className="flex justify-between py-2 border-b border-white/[0.06]">
                           <dt className="text-gray-blue">Loan Amount</dt>
@@ -644,19 +897,19 @@ export default function PropertyDetailPage() {
                         </div>
                         <div className="flex justify-between py-2 border-b border-white/[0.06]">
                           <dt className="text-gray-blue">Loan Term</dt>
-                          <dd className="text-white font-medium">{calcTerm} years ({Number(calcTerm) * 12} months)</dd>
+                          <dd className="text-white font-medium">{calcResult.loanTermYears} years ({calcResult.loanTermYears * 12} months)</dd>
                         </div>
                         <div className="flex justify-between bg-gradient-to-r from-sand/10 to-transparent rounded-lg p-3 -mx-2 mt-2">
                           <dt className="text-sand font-semibold text-base">Monthly Payment</dt>
-                          <dd className="text-sand font-bold text-xl">{formatFullPrice(calcResult.monthly)}</dd>
+                          <dd className="text-sand font-bold text-xl">{formatFullPrice(calcResult.monthlyPayment)}</dd>
                         </div>
-                        <div className="flex justify-between py-2">
-                          <dt className="text-gray-blue">Total Payment</dt>
-                          <dd className="text-white">{formatFullPrice(calcResult.totalPayment)}</dd>
+                        <div className="flex justify-between py-2 border-t border-white/[0.06]">
+                          <dt className="text-gray-blue">Remaining Balance</dt>
+                          <dd className="text-white">{formatFullPrice(calcResult.loanAmount)}</dd>
                         </div>
-                        <div className="flex justify-between py-2">
-                          <dt className="text-gray-blue">Total Interest</dt>
-                          <dd className="text-red-400">{formatFullPrice(calcResult.totalInterest)}</dd>
+                        <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3">
+                          <p className="text-green-300 text-xs uppercase tracking-wider mb-1">Next Valid Step</p>
+                          <p className="text-white text-sm">Use this snapshot to reserve the property. The reservation form will not proceed until this calculator has been completed.</p>
                         </div>
                       </dl>
                     </div>
@@ -672,11 +925,12 @@ export default function PropertyDetailPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <button
                         onClick={() => { setPayChannel('walk_in'); setPayMethod(''); }}
+                        disabled={paymentIntentLocked}
                         className={`p-5 rounded-xl border-2 transition-all text-left group ${
                           payChannel === 'walk_in'
                             ? 'border-sand bg-sand/10 shadow-lg shadow-sand/10'
                             : 'border-white/[0.06] hover:border-white/20 hover:bg-white/[0.03]'
-                        }`}
+                        } ${paymentIntentLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
                         <div className={`w-12 h-12 mb-3 rounded-lg flex items-center justify-center border ${
                           payChannel === 'walk_in' ? 'bg-sand/20 border-sand/30' : 'bg-white/5 border-white/10'
@@ -688,11 +942,12 @@ export default function PropertyDetailPage() {
                       </button>
                       <button
                         onClick={() => { setPayChannel('online'); setPayMethod(''); }}
+                        disabled={paymentIntentLocked}
                         className={`p-5 rounded-xl border-2 transition-all text-left group ${
                           payChannel === 'online'
                             ? 'border-sand bg-sand/10 shadow-lg shadow-sand/10'
                             : 'border-white/[0.06] hover:border-white/20 hover:bg-white/[0.03]'
-                        }`}
+                        } ${paymentIntentLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
                         <div className={`w-12 h-12 mb-3 rounded-lg flex items-center justify-center border ${
                           payChannel === 'online' ? 'bg-sand/20 border-sand/30' : 'bg-white/5 border-white/10'
@@ -703,6 +958,9 @@ export default function PropertyDetailPage() {
                         <p className="text-gray-blue text-xs mt-1">Pay via bank transfer, GCash, or credit card</p>
                       </button>
                     </div>
+                    {paymentIntentLocked && (
+                      <p className="text-xs text-yellow-300 mt-4">Payment channel is locked to your reservation intent: {reservation?.paymentIntent === 'walk_in' ? 'Walk-In' : 'Online'}.</p>
+                    )}
                   </div>
 
                   {/* Walk-In Instructions */}
@@ -857,6 +1115,32 @@ export default function PropertyDetailPage() {
                                   <Banknote className="w-3.5 h-3.5" /> Cash (Walk-In)
                                 </span>
                               </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                <div>
+                                  <label className="text-gray-blue text-xs mb-1 block">Payment Type</label>
+                                  <select
+                                    value={payType}
+                                    onChange={(e) => setPayType(e.target.value)}
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
+                                  >
+                                    {availablePaymentTypes.map((type) => (
+                                      <option key={type.value} value={type.value} className="bg-navy">
+                                        {type.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-gray-blue text-xs mb-1 block">Amount</label>
+                                  <input
+                                    type="number"
+                                    value={payAmount}
+                                    onChange={(e) => setPayAmount(e.target.value)}
+                                    min="1"
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
+                                  />
+                                </div>
+                              </div>
                               {walkInDate && (
                                 <div className="flex justify-between py-1.5">
                                   <span className="text-gray-blue">Preferred Date</span>
@@ -880,42 +1164,14 @@ export default function PropertyDetailPage() {
                           </div>
 
                           {/* Submit Walk-In Button */}
-                          {loggedIn && !isOwner && property.status === 'approved' && !walkInReceipt && !isReservedByOther && (
+                          {loggedIn && walkInReady && !walkInReceipt && (
                             <>
                               <button
-                                onClick={async () => {
-                                  if (!property || !walkInDate || !walkInTime) return;
-                                  setWalkInSending(true);
-                                  setWalkInStatus(null);
-                                  try {
-                                    const formattedDate = new Date(walkInDate + 'T00:00').toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                                    await createAppointment({
-                                      propertyId: property.id,
-                                      appointmentDate: walkInDate,
-                                      appointmentTime: walkInTime,
-                                      notes: `Walk-in payment – Cash at Brader Real Estate office`,
-                                      appointmentType: 'walk_in_payment',
-                                    });
-                                    const auth = getStoredAuth();
-                                    setWalkInReceipt({
-                                      date: formattedDate,
-                                      time: walkInTime,
-                                      property: property.title,
-                                      seller: property.ownerName,
-                                      buyer: auth ? `${auth.user.firstName} ${auth.user.lastName}` : 'N/A',
-                                      submittedAt: new Date().toLocaleString(),
-                                    });
-                                    setWalkInStatus({ ok: true, text: 'Walk-in appointment submitted! The seller has been notified.' });
-                                  } catch (err) {
-                                    setWalkInStatus({ ok: false, text: err instanceof Error ? err.message : 'Failed to submit' });
-                                  } finally {
-                                    setWalkInSending(false);
-                                  }
-                                }}
-                                disabled={walkInSending || !walkInDate || !walkInTime}
+                                onClick={() => { void handleWalkInSchedule(); }}
+                                disabled={walkInSending || !walkInDate || !walkInTime || !payAmount || !!walkInReceipt}
                                 className="w-full py-3.5 btn-magnetic bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy font-semibold rounded-xl transition-all disabled:opacity-50 text-sm uppercase tracking-wider"
                               >
-                                {walkInSending ? 'Submitting...' : 'Submit Walk-In Appointment'}
+                                {walkInSending ? 'Submitting...' : 'Create Walk-In Payment Schedule'}
                               </button>
                               {walkInStatus && (
                                 <p className={`text-sm flex items-center gap-1 ${walkInStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
@@ -929,6 +1185,9 @@ export default function PropertyDetailPage() {
                             <p className="text-gray-blue text-sm text-center">
                               <Link to="/login" className="text-sand hover:underline">Sign in</Link> to schedule a walk-in payment.
                             </p>
+                          )}
+                          {loggedIn && !walkInReady && !isReservedByOther && (
+                            <p className="text-gray-blue text-sm text-center">Walk-in payment is available only for your reservation after you choose walk-in as the payment intent.</p>
                           )}
                           {loggedIn && isReservedByOther && (
                             <p className="text-yellow-400 text-sm text-center">This property is reserved by another buyer. Walk-in scheduling is disabled.</p>
@@ -983,11 +1242,15 @@ export default function PropertyDetailPage() {
                               </div>
                               <div style={{ marginTop: '16px' }}>
                                 {[
+                                  { label: 'Appointment ID', value: `APT-${String(walkInReceipt.id).padStart(6, '0')}` },
                                   { label: 'Submitted On', value: walkInReceipt.submittedAt },
                                   { label: 'Property', value: walkInReceipt.property },
                                   { label: 'Buyer', value: walkInReceipt.buyer },
                                   { label: 'Seller / Agent', value: walkInReceipt.seller },
+                                  { label: 'Payment Type', value: walkInReceipt.paymentType.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) },
                                   { label: 'Payment Method', value: 'Cash (Walk-In)' },
+                                  { label: 'Amount', value: formatFullPrice(walkInReceipt.amount) },
+                                  ...(walkInReceipt.referenceNo ? [{ label: 'Reference No.', value: walkInReceipt.referenceNo }] : []),
                                 ].map((row) => (
                                   <div key={row.label} className="flex justify-between py-2 border-b border-white/[0.06] text-sm">
                                     <span className="text-gray-blue">{row.label}</span>
@@ -1007,8 +1270,8 @@ export default function PropertyDetailPage() {
                                 </div>
                               </div>
                               <div style={{ textAlign: 'center', marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
-                                <p className="text-green-400 text-xs font-medium">Seller has been notified of your walk-in appointment</p>
-                                <p className="text-gray-blue/40 text-[10px] mt-1">Please bring a valid government ID and exact payment amount. Present this receipt at the office.</p>
+                                <p className="text-green-400 text-xs font-medium">A pending walk-in payment record has been created for clerk validation</p>
+                                <p className="text-gray-blue/40 text-[10px] mt-1">Please bring a valid government ID, your cash payment, and this reference when you arrive.</p>
                               </div>
                             </div>
                           </div>
@@ -1023,10 +1286,10 @@ export default function PropertyDetailPage() {
                         <div className="space-y-4">
                           {[
                             { step: 1, title: 'Select Your Preferred Schedule', desc: 'Pick a date and time above during business hours.' },
-                            { step: 2, title: 'Submit Appointment', desc: 'Click submit to notify the seller/agent of your walk-in visit.' },
+                            { step: 2, title: 'Create Walk-In Payment', desc: 'Submit the schedule so the system creates a pending payment reference for the clerk.' },
                             { step: 3, title: 'Visit the Office', desc: 'Go to the Brader Real Estate Realty office at your scheduled time.' },
-                            { step: 4, title: 'Bring Valid ID & Payment', desc: 'Present a valid government ID and pay the amount in cash.' },
-                            { step: 5, title: 'Get Your Official Receipt', desc: 'The cashier will issue an official receipt confirming your payment.' },
+                            { step: 4, title: 'Bring Valid ID & Payment', desc: 'Present a valid government ID, your reference number, and the cash payment amount.' },
+                            { step: 5, title: 'Wait for Clerk Validation', desc: 'The reservation becomes active only after the clerk confirms the walk-in payment.' },
                           ].map((s) => (
                             <div key={s.step} className="flex gap-4">
                               <div className="w-8 h-8 flex-shrink-0 rounded-full bg-gradient-to-br from-[#D4A574] to-[#c99660] flex items-center justify-center text-navy text-sm font-bold">
@@ -1054,7 +1317,7 @@ export default function PropertyDetailPage() {
                           { step: 1, title: 'Choose Payment Method', desc: 'Select from bank transfer, GCash, Pag-IBIG, or credit card.' },
                           { step: 2, title: 'Complete the Transfer', desc: 'Send the payment using your chosen method and note the reference number.' },
                           { step: 3, title: 'Upload Proof of Payment', desc: 'Screenshot or photo of the transaction confirmation.' },
-                          { step: 4, title: 'Wait for Confirmation', desc: 'The seller will verify your payment and update the status.' },
+                          { step: 4, title: 'Automatic Verification', desc: 'Online payments are verified immediately and can activate your reservation right away.' },
                         ].map((s) => (
                           <div key={s.step} className="flex gap-4">
                             <div className="w-8 h-8 flex-shrink-0 rounded-full bg-gradient-to-br from-[#D4A574] to-[#c99660] flex items-center justify-center text-navy text-sm font-bold">
@@ -1100,12 +1363,22 @@ export default function PropertyDetailPage() {
                       </p>
                     ) : isOwner ? (
                       <p className="text-gray-blue text-sm">You cannot pay for your own property.</p>
-                    ) : property.status !== 'approved' ? (
-                      <p className="text-gray-blue text-sm">This property is not currently available for payment.</p>
                     ) : isReservedByOther ? (
                       <p className="text-yellow-400 text-sm">This property is reserved by another buyer. Online payments are disabled.</p>
+                    ) : !canShowPaymentPanel ? (
+                      <p className="text-gray-blue text-sm">Payments are available only after you create your own reservation and while that reservation is still pending or active.</p>
+                    ) : !onlineReady ? (
+                      <p className="text-gray-blue text-sm">Your reservation is configured for walk-in payment, so online submission is locked for this property.</p>
                     ) : (
                       <form onSubmit={handlePayment} className="space-y-4">
+                        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-4 py-3 text-sm">
+                          <p className="text-blue-300 font-medium">Reservation #{reservation?.id}</p>
+                          <p className="text-white/80 mt-1">
+                            {property.status === 'under_offer'
+                              ? 'The seller has accepted your offer. Complete the remaining balance to close the sale.'
+                              : 'Your reservation will stay pending until the required payment is confirmed.'}
+                          </p>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="text-gray-blue text-sm mb-1.5 block font-medium">Payment Type</label>
@@ -1115,10 +1388,11 @@ export default function PropertyDetailPage() {
                               required
                               className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
                             >
-                              <option value="reservation" className="bg-navy">Reservation Fee</option>
-                              <option value="down_payment" className="bg-navy">Down Payment</option>
-                              <option value="full_payment" className="bg-navy">Full Payment</option>
-                              <option value="monthly" className="bg-navy">Monthly Installment</option>
+                              {availablePaymentTypes.map((type) => (
+                                <option key={type.value} value={type.value} className="bg-navy">
+                                  {type.label}
+                                </option>
+                              ))}
                             </select>
                           </div>
                           <div>
@@ -1193,7 +1467,7 @@ export default function PropertyDetailPage() {
                         </div>
                         <button
                           type="submit"
-                          disabled={paySending || !payAmount || !payMethod || !payProof}
+                          disabled={paySending || !payAmount || !payMethod || !payProof || !!payReceipt}
                           className="w-full py-3.5 btn-magnetic bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy font-semibold rounded-xl transition-all disabled:opacity-50 text-sm uppercase tracking-wider"
                         >
                           {paySending ? 'Processing...' : 'Submit Payment'}
@@ -1251,8 +1525,8 @@ export default function PropertyDetailPage() {
                             </div>
                           </div>
                           <div style={{ textAlign: 'center', marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
-                            <p className="text-gray-blue/60 text-xs">Status: Pending Seller Verification</p>
-                            <p className="text-gray-blue/40 text-[10px] mt-1">This receipt is generated upon submission. Final confirmation is subject to seller verification.</p>
+                            <p className="text-gray-blue/60 text-xs">Status: Automatically Verified</p>
+                            <p className="text-gray-blue/40 text-[10px] mt-1">Online payments are recorded immediately and can activate the reservation or closing flow right away.</p>
                           </div>
                         </div>
                       </div>
@@ -1265,48 +1539,89 @@ export default function PropertyDetailPage() {
 
           {/* Right – Contact & Appointment */}
           <div className="space-y-6">
-            {/* Reserve Property */}
-            {property.status === 'approved' && !isOwner && (
+            {/* Reservation Flow */}
+            {!isOwner && (
               <div className="detail-fade glass-card rounded-2xl p-6">
                 <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                   <div className="w-8 h-8 bg-green-500/10 rounded-lg flex items-center justify-center border border-green-500/20">
                     <Calendar className="w-4 h-4 text-green-400" />
                   </div>
-                  Reserve This Property
+                  Reservation Flow
                 </h3>
                 {reservation ? (
-                  <div>
-                    <div className={`rounded-lg p-4 mb-3 ${reservation.status === 'pending' ? 'bg-orange-500/10 border border-orange-500/20' : 'bg-green-500/10 border border-green-500/20'}`}>
-                      <p className={`text-sm font-medium flex items-center gap-1.5 ${reservation.status === 'pending' ? 'text-orange-400' : 'text-green-400'}`}>
+                  <div className="space-y-3">
+                    <div className={`rounded-lg p-4 ${reservation.status === 'pending' ? 'bg-orange-500/10 border border-orange-500/20' : reservation.status === 'active' ? 'bg-green-500/10 border border-green-500/20' : 'bg-white/5 border border-white/10'}`}>
+                      <p className={`text-sm font-medium flex items-center gap-1.5 ${reservation.status === 'pending' ? 'text-orange-400' : reservation.status === 'active' ? 'text-green-400' : 'text-gray-blue'}`}>
                         {reservation.status === 'pending' ? <Clock className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                        {reservation.userId === auth?.user.id
+                        {isReservationOwner
                           ? reservation.status === 'pending'
-                            ? 'Your reservation is pending confirmation by the property owner'
-                            : 'Your reservation is confirmed and active'
-                          : reservation.status === 'pending'
-                            ? 'A buyer has requested to reserve this property'
-                            : 'This property is reserved'}
+                            ? 'Your reservation exists, but payment still needs to be confirmed before it becomes active.'
+                            : reservation.status === 'active'
+                              ? 'Your reservation is active. You can now submit an offer.'
+                              : `Your reservation is ${reservation.status}.`
+                          : 'This property already has an active reservation flow.'}
                       </p>
                       <p className="text-gray-blue text-xs mt-1">
                         Expires: <span className="text-white">{new Date(reservation.expiresAt).toLocaleDateString()} at {new Date(reservation.expiresAt).toLocaleTimeString()}</span>
                       </p>
-                      {reservation.userName && reservation.userId !== auth?.user.id && (
+                      {reservation.paymentIntent && (
+                        <p className="text-gray-blue text-xs mt-0.5">
+                          Payment intent: <span className="text-white">{reservation.paymentIntent === 'walk_in' ? 'Walk-In' : 'Online'}</span>
+                        </p>
+                      )}
+                      {reservation.userName && !isReservationOwner && (
                         <p className="text-gray-blue text-xs mt-0.5">Reserved by: <span className="text-white">{reservation.userName}</span></p>
                       )}
                     </div>
-                    {reservation.userId === auth?.user.id && (
+
+                    {isReservationOwner && (
+                      <div className="grid grid-cols-1 gap-2 text-sm">
+                        <div className={`rounded-lg px-3 py-2 border ${completedViewing ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-white/5 border-white/10 text-gray-blue'}`}>
+                          Viewing requirement: {completedViewing ? 'completed' : 'already satisfied before this reservation was created'}
+                        </div>
+                        <div className={`rounded-lg px-3 py-2 border ${calculatorSnapshot ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-white/5 border-white/10 text-gray-blue'}`}>
+                          Calculator snapshot: {calculatorSnapshot ? 'locked to this reservation' : 'missing'}
+                        </div>
+                        <div className={`rounded-lg px-3 py-2 border ${reservation.status === 'active' ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-orange-500/10 border-orange-500/20 text-orange-300'}`}>
+                          Reservation status: {reservation.status === 'active' ? 'active and eligible for offers' : 'awaiting payment validation'}
+                        </div>
+                      </div>
+                    )}
+
+                    {canManageReservation && (
                       <button onClick={handleCancelReservation} className="w-full py-2.5 text-sm text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition-colors">
                         Cancel Reservation
                       </button>
                     )}
                   </div>
                 ) : !loggedIn ? (
-                  <p className="text-gray-blue text-sm"><Link to="/login" className="text-sand hover:underline">Sign in</Link> to reserve this property.</p>
+                  <p className="text-gray-blue text-sm"><Link to="/login" className="text-sand hover:underline">Sign in</Link> to start the reservation flow.</p>
+                ) : !isBuyer ? (
+                  <p className="text-gray-blue text-sm">Only buyers can reserve properties.</p>
+                ) : property.status !== 'available' ? (
+                  <p className="text-gray-blue text-sm">
+                    {property.status === 'reserved'
+                      ? 'A reservation already exists for this property.'
+                      : property.status === 'under_offer'
+                        ? 'An accepted offer is already in progress for this property.'
+                        : property.status === 'sold'
+                          ? 'This property has already been sold.'
+                          : 'This property is not currently open for reservation.'}
+                  </p>
                 ) : isReservedByOther ? (
                   <p className="text-yellow-400 text-sm">This property is reserved by another buyer.</p>
                 ) : (
-                  <div className="space-y-3">
-                    <p className="text-gray-blue text-sm">Reserve this property to secure it while you arrange financing or viewing. No one else can reserve it during this period.</p>
+                  <div className="space-y-4">
+                    <p className="text-gray-blue text-sm">Reservations are allowed only after a completed viewing, a finished down payment calculation, and a chosen payment intent.</p>
+                    <div className={`rounded-lg px-3 py-2 border ${completedViewing ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-white/5 border-white/10 text-gray-blue'}`}>
+                      Viewing completed: {completedViewing ? 'yes' : viewingAppointment ? `latest status is ${viewingAppointment.status}` : 'not yet'}
+                    </div>
+                    <div className={`rounded-lg px-3 py-2 border ${calcResult ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-white/5 border-white/10 text-gray-blue'}`}>
+                      Calculator completed: {calcResult ? 'yes' : 'finish the calculator tab first'}
+                    </div>
+                    <div className="rounded-lg px-3 py-2 border bg-white/5 border-white/10 text-gray-blue">
+                      Selected payment intent: <span className="text-white">{payChannel === 'walk_in' ? 'Walk-In' : 'Online'}</span>
+                    </div>
                     <div>
                       <label className="text-gray-blue text-sm mb-1.5 block font-medium">Reservation Period</label>
                       <select
@@ -1332,10 +1647,10 @@ export default function PropertyDetailPage() {
                     </div>
                     <button
                       onClick={handleReserve}
-                      disabled={reserving}
+                      disabled={reserving || !canReserve}
                       className="w-full py-3.5 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl transition-all disabled:opacity-50 text-sm uppercase tracking-wider hover:shadow-lg hover:shadow-green-500/20"
                     >
-                      {reserving ? 'Reserving...' : 'Reserve Property'}
+                      {reserving ? 'Reserving...' : 'Create Reservation'}
                     </button>
                     {reserveStatus && (
                       <p className={`text-sm flex items-center gap-1 ${reserveStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
@@ -1343,6 +1658,88 @@ export default function PropertyDetailPage() {
                         {reserveStatus.text}
                       </p>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Offer Flow */}
+            {!isOwner && (reservation || offerHistory.length > 0) && (
+              <div className="detail-fade glass-card rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center border border-blue-500/20">
+                    <FileText className="w-4 h-4 text-blue-400" />
+                  </div>
+                  Offer Flow
+                </h3>
+                {!loggedIn ? (
+                  <p className="text-gray-blue text-sm"><Link to="/login" className="text-sand hover:underline">Sign in</Link> to submit an offer.</p>
+                ) : !reservation || !isReservationOwner ? (
+                  <p className="text-gray-blue text-sm">Offers are visible only to the buyer tied to the reservation.</p>
+                ) : activeOffer ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg p-4 bg-blue-500/10 border border-blue-500/20">
+                      <p className="text-blue-300 text-sm font-medium">
+                        {activeOffer.status === 'countered' ? 'The seller sent a counter offer.' : 'You already have an open offer for this reservation.'}
+                      </p>
+                      <p className="text-white text-sm mt-2">Amount: {formatFullPrice(activeOffer.status === 'countered' && activeOffer.counterAmount ? activeOffer.counterAmount : activeOffer.amount)}</p>
+                      {activeOffer.message && <p className="text-gray-blue text-xs mt-1">Your note: {activeOffer.message}</p>}
+                      {activeOffer.counterMessage && <p className="text-gray-blue text-xs mt-1">Seller note: {activeOffer.counterMessage}</p>}
+                    </div>
+                  </div>
+                ) : !canSubmitOffer ? (
+                  <p className="text-gray-blue text-sm">Submit an offer after your reservation becomes active and while the property is still in the reserved stage.</p>
+                ) : (
+                  <form onSubmit={handleOfferSubmit} className="space-y-4">
+                    <div>
+                      <label className="text-gray-blue text-sm mb-1.5 block font-medium">Offer Amount</label>
+                      <input
+                        type="number"
+                        value={offerAmount}
+                        onChange={(e) => setOfferAmount(e.target.value)}
+                        min="1"
+                        required
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-blue text-sm mb-1.5 block font-medium">Message (optional)</label>
+                      <textarea
+                        value={offerMessage}
+                        onChange={(e) => setOfferMessage(e.target.value)}
+                        rows={3}
+                        placeholder="Share context for your offer..."
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 resize-none transition-all"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={offerSending || !offerAmount}
+                      className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl transition-all disabled:opacity-50 text-sm uppercase tracking-wider hover:shadow-lg hover:shadow-blue-500/20"
+                    >
+                      {offerSending ? 'Submitting...' : 'Submit Offer'}
+                    </button>
+                    {offerStatus && (
+                      <p className={`text-sm flex items-center gap-1 ${offerStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
+                        {offerStatus.ok ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                        {offerStatus.text}
+                      </p>
+                    )}
+                  </form>
+                )}
+
+                {offerHistory.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {offerHistory.map((offer) => (
+                      <div key={offer.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-white text-sm font-medium">{formatFullPrice(offer.amount)}</p>
+                          <span className="text-xs uppercase tracking-wider text-gray-blue">{offer.status}</span>
+                        </div>
+                        {offer.message && <p className="text-gray-blue text-xs mt-1">{offer.message}</p>}
+                        {offer.counterAmount && <p className="text-blue-300 text-xs mt-1">Counter: {formatFullPrice(offer.counterAmount)}</p>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1360,14 +1757,14 @@ export default function PropertyDetailPage() {
                 <p className="text-gray-blue text-sm">
                   <Link to="/login" className="text-sand hover:underline">Sign in</Link> to send an inquiry.
                 </p>
-              ) : property.status === 'sold' ? (
-                <p className="text-gray-blue text-sm">This property has been sold.</p>
               ) : isOwner ? (
                 <p className="text-gray-blue text-sm">This is your listing.</p>
               ) : isReservedByOther ? (
                 <p className="text-yellow-400 text-sm">This property is reserved by another buyer. Inquiries are disabled.</p>
-              ) : !isBuyer && auth?.user.role !== 'administrator' ? (
+              ) : !isBuyer ? (
                 <p className="text-gray-blue text-sm">Only buyers can send inquiries.</p>
+              ) : !canSendInquiry ? (
+                <p className="text-gray-blue text-sm">Inquiries are allowed only while the property is available or reserved for your own purchase flow.</p>
               ) : (
                 <form onSubmit={handleInquiry} className="space-y-4">
                   <textarea
@@ -1407,10 +1804,22 @@ export default function PropertyDetailPage() {
                 <p className="text-gray-blue text-sm">
                   <Link to="/login" className="text-sand hover:underline">Sign in</Link> to schedule a viewing.
                 </p>
+              ) : isOwner ? (
+                <p className="text-gray-blue text-sm">This is your listing.</p>
               ) : isReservedByOther ? (
                 <p className="text-yellow-400 text-sm">This property is reserved by another buyer. Viewing scheduling is disabled.</p>
+              ) : !isBuyer ? (
+                <p className="text-gray-blue text-sm">Only buyers can request viewings.</p>
+              ) : !canScheduleViewing ? (
+                <p className="text-gray-blue text-sm">Viewing requests are allowed only while the property is available or reserved for your own flow.</p>
               ) : (
                 <form onSubmit={handleAppointment} className="space-y-4">
+                  {viewingAppointment && (
+                    <div className={`rounded-lg px-4 py-3 border text-sm ${completedViewing ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-white/5 border-white/10 text-gray-blue'}`}>
+                      Latest viewing status: <span className="text-white">{viewingAppointment.status}</span>
+                      {completedViewing && <span className="block text-white/80 mt-1">You can move on to reservation whenever you are ready.</span>}
+                    </div>
+                  )}
                   <div>
                     <label className="text-gray-blue text-sm mb-1.5 block font-medium">Date</label>
                     <input
@@ -1444,7 +1853,7 @@ export default function PropertyDetailPage() {
                   </div>
                   <button
                     type="submit"
-                    disabled={apptSending}
+                    disabled={apptSending || apptStatus?.ok === true}
                     className="w-full py-3.5 glass-card rounded-xl text-white font-medium hover:bg-white/[0.06] transition-all disabled:opacity-50"
                   >
                     {apptSending ? 'Booking...' : 'Request Viewing'}
@@ -1464,3 +1873,6 @@ export default function PropertyDetailPage() {
     </div>
   );
 }
+
+
+

@@ -5,6 +5,7 @@ import { registerUser } from '../lib/auth';
 import { PUBLIC_SIGNUP_ROLES, ROLE_LABELS, type UserRole } from '../lib/rbac';
 import gsap from 'gsap';
 import BrandLogo from '../components/BrandLogo';
+import FloatingParticles from '../components/FloatingParticles';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -120,29 +121,15 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-navy flex relative overflow-hidden page-enter">
       {/* Background particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {Array.from({ length: 15 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full bg-sand/10"
-            style={{
-              width: `${2 + Math.random() * 4}px`,
-              height: `${2 + Math.random() * 4}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `float-particle ${8 + Math.random() * 12}s linear infinite`,
-              animationDelay: `${Math.random() * 10}s`,
-            }}
-          />
-        ))}
-      </div>
+      <FloatingParticles count={15} className="absolute inset-0 pointer-events-none overflow-hidden" sizeRange={4} durationMin={8} durationRange={12} />
 
       {/* Left Side - Image */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <img 
           src="/images/property2.jpg" 
           alt="Luxury home"
-          className="absolute inset-0 w-full h-full object-cover scale-105 transition-transform duration-[3000ms] hover:scale-110"
+          className="absolute inset-0 w-full h-full object-cover scale-105 transition-transform hover:scale-110"
+          style={{ transitionDuration: '3000ms' }}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-navy/90 via-navy/50 to-navy/30" />
         <div className="absolute inset-0 bg-gradient-to-t from-navy/80 via-transparent to-transparent" />

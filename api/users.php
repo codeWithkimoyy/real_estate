@@ -219,7 +219,7 @@ if ($method === 'PUT' || $method === 'PATCH') {
         }
 
         $vStatus = $verificationAction === 'verify' ? 'verified' : 'rejected';
-        $vNotes  = sanitize_string((string) ($body['verificationNotes'] ?? ''), 1000);
+        $vNotes  = sanitize_string((string) ($body['verificationNotes'] ?? ($body['verification_notes'] ?? '')), 1000);
         $vBy     = (int) $authUser['id'];
         $now     = date('Y-m-d H:i:s');
         $verifiedAt = $verificationAction === 'verify' ? $now : null;

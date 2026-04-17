@@ -15,10 +15,16 @@ export interface AuthUser {
   avatar: string | null;
   emailVerifiedAt: string | null;
   verificationStatus: string;
+  isGoogleUser?: boolean;
+}
+
+export interface ForgotPasswordResult {
+  message: string;
 }
 
 interface AuthResponse {
   ok: boolean;
+  success?: boolean;
   data?: {
     token?: string;
     user?: AuthUser;
@@ -29,7 +35,10 @@ interface AuthResponse {
     name?: string;
     pendingToken?: string;
   };
-  error?: string;
+  error?: unknown;
+  errorCode?: string;
+  errorMessage?: string;
+  retryAfter?: number;
 }
 
 interface StoredAuth {
@@ -42,9 +51,7 @@ function emitAuthChanged(): void {
 }
 
 function setStoredAuth(auth: StoredAuth): void {
-  // Store only non-sensitive user info in localStorage for UI display.
-  // The session token is now managed via HttpOnly cookie set by the server.
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ user: auth.user }));
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: auth.token, user: auth.user }));
   emitAuthChanged();
 }
 
@@ -56,10 +63,8 @@ export function getStoredAuth(): StoredAuth | null {
 
   try {
     const parsed = JSON.parse(raw) as { token?: string; user?: AuthUser };
-    if (!parsed.user) return null;
-    // Token may be absent from localStorage (HttpOnly cookie handles it).
-    // Return a placeholder so isLoggedIn() still works based on stored user.
-    return { token: parsed.token ?? '__cookie__', user: parsed.user };
+    if (!parsed.user || !parsed.token) return null;
+    return { token: parsed.token, user: parsed.user };
   } catch {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
@@ -67,10 +72,7 @@ export function getStoredAuth(): StoredAuth | null {
 }
 
 export function getAuthToken(): string | null {
-  // Token is now primarily in HttpOnly cookie; this returns a sentinel
-  // so callers know the user is logged in, but the real token is sent
-  // automatically by the browser via credentials: 'include'.
-  return getStoredAuth() ? '__cookie__' : null;
+  return getStoredAuth()?.token ?? null;
 }
 
 export function updateStoredUser(updates: Partial<AuthUser>): void {
@@ -80,13 +82,72 @@ export function updateStoredUser(updates: Partial<AuthUser>): void {
 }
 
 /** Update stored token after rotation (refresh). */
-export function updateStoredToken(_newToken: string): void {
-  // Token is now in HttpOnly cookie; no-op for localStorage.
-  // The server already set the new cookie via Set-Cookie header.
+export function updateStoredToken(newToken: string): void {
+  const stored = getStoredAuth();
+  if (!stored) return;
+  setStoredAuth({ ...stored, token: newToken });
 }
 
 export function isLoggedIn(): boolean {
   return Boolean(getStoredAuth());
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readErrorMessage(value: unknown): string | null {
+  const direct = readString(value);
+  if (direct) return direct;
+
+  const obj = readObject(value);
+  if (!obj) return null;
+
+  const nestedError = readErrorMessage(obj.error);
+  if (nestedError) return nestedError;
+
+  return (
+    readString(obj.errorMessage) ??
+    readString(obj.message) ??
+    readString(obj.detail) ??
+    null
+  );
+}
+
+function formatRetryAfter(rawSeconds: unknown): string | null {
+  if (typeof rawSeconds !== 'number' || !Number.isFinite(rawSeconds) || rawSeconds <= 0) {
+    return null;
+  }
+
+  const seconds = Math.ceil(rawSeconds);
+  if (seconds < 60) {
+    return `Too many requests. Please try again in ${seconds} second${seconds === 1 ? '' : 's'}.`;
+  }
+
+  const minutes = Math.ceil(seconds / 60);
+  return `Too many requests. Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
+function getAuthErrorMessage(response: Response, result: AuthResponse): string {
+  if (response.status === 429) {
+    return (
+      formatRetryAfter(result.retryAfter) ??
+      readErrorMessage(result) ??
+      'Too many requests. Please try again later.'
+    );
+  }
+
+  const extracted = readErrorMessage(result);
+  if (extracted) return extracted;
+
+  return 'Authentication request failed';
 }
 
 async function postAuth(payload: Record<string, unknown>): Promise<AuthResponse> {
@@ -110,7 +171,7 @@ async function postAuth(payload: Record<string, unknown>): Promise<AuthResponse>
   }
 
   if (!response.ok || !result.ok) {
-    throw new Error(result.error ?? 'Authentication request failed');
+    throw new Error(getAuthErrorMessage(response, result));
   }
 
   return result;
@@ -241,14 +302,17 @@ export async function logoutAll(): Promise<void> {
 }
 
 /** Request a password reset email. */
-export async function forgotPassword(email: string): Promise<string> {
+export async function forgotPassword(email: string): Promise<ForgotPasswordResult> {
   const result = await postAuth({ action: 'forgot_password', email });
-  return result.data?.message ?? 'If the email exists, a reset link has been sent.';
+  const data = (result.data ?? {}) as { message?: string };
+  return {
+    message: data.message ?? 'If the email exists, a reset code has been sent.',
+  };
 }
 
-/** Reset password using a token. */
-export async function resetPassword(token: string, newPassword: string): Promise<string> {
-  const result = await postAuth({ action: 'reset_password', token, newPassword });
+/** Reset password using email + verification code. */
+export async function resetPassword(email: string, resetCode: string, newPassword: string): Promise<string> {
+  const result = await postAuth({ action: 'reset_password', email, resetCode, newPassword });
   return result.data?.message ?? 'Password reset successfully.';
 }
 

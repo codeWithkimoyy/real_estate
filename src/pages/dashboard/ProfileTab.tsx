@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Phone, Lock, Save, FileText, CheckCircle, AlertCircle, Upload, ShieldCheck, Clock, XCircle } from 'lucide-react';
-import { getProfile, updateProfile, changePassword, submitVerificationDocument, type ProfileData } from '../../lib/api';
+import { getProfile, updateProfile, changePassword, submitVerificationDocument, resolveAssetUrl, type ProfileData } from '../../lib/api';
 import { updateStoredUser } from '../../lib/auth';
 import ImageUpload from '../../components/ImageUpload';
 
@@ -33,7 +33,7 @@ export default function ProfileTab() {
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
   const [avatar, setAvatar] = useState('');
-  const [avatarError, setAvatarError] = useState(false);
+  const [failedAvatarSrc, setFailedAvatarSrc] = useState('');
 
   // Password form
   const [currentPw, setCurrentPw] = useState('');
@@ -64,10 +64,6 @@ export default function ProfileTab() {
     };
     void load();
   }, []);
-
-  useEffect(() => {
-    setAvatarError(false);
-  }, [avatar]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,18 +123,19 @@ export default function ProfileTab() {
     setChangingPw(false);
   };
 
-  const handleSubmitVerification = async () => {
-    if (!verificationDoc.trim()) {
+  const handleSubmitVerification = async (documentUrl = verificationDoc, selectedIdType = idType) => {
+    const trimmedDocumentUrl = documentUrl.trim();
+    if (!trimmedDocumentUrl) {
       setToast({ message: 'Please upload a document first', type: 'error' });
       return;
     }
-    if (!idType) {
+    if (!selectedIdType) {
       setToast({ message: 'Please select an ID type', type: 'error' });
       return;
     }
     setSubmittingDoc(true);
     try {
-      const updated = await submitVerificationDocument(verificationDoc.trim(), idType);
+      const updated = await submitVerificationDocument(trimmedDocumentUrl, selectedIdType);
       setProfile(updated);
       setToast({ message: 'Verification document submitted for review', type: 'success' });
     } catch (err) {
@@ -160,6 +157,13 @@ export default function ProfileTab() {
   const roleLabel: Record<string, string> = { administrator: 'Admin', agent: 'Agent', seller: 'Seller', buyer: 'Buyer', clerk: 'Clerk' };
 
   const inputCls = 'w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 placeholder:text-gray-blue/50 transition-all';
+  const handleVerificationDocumentChange = (value: string) => {
+    setVerificationDoc(value);
+  };
+
+  const handleIdTypeChange = (value: string) => {
+    setIdType(value);
+  };
 
   return (
     <div className="max-w-3xl">
@@ -175,12 +179,12 @@ export default function ProfileTab() {
       <div className="rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.06] p-6 mb-6">
         <div className="flex items-center gap-5">
           <div className="relative group">
-            {avatar && !avatarError ? (
+            {avatar && failedAvatarSrc !== avatar ? (
               <img
-                src={avatar}
+                src={resolveAssetUrl(avatar)}
                 alt="Avatar"
                 className="w-20 h-20 rounded-2xl object-cover ring-2 ring-white/10"
-                onError={() => setAvatarError(true)}
+                onError={() => setFailedAvatarSrc(avatar)}
               />
             ) : (
               <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#D4A574] to-[#b8895c] flex items-center justify-center text-navy font-bold text-xl shadow-lg shadow-[#D4A574]/20">
@@ -191,9 +195,16 @@ export default function ProfileTab() {
           <div>
             <p className="text-white font-bold text-lg">{firstName} {lastName}</p>
             <p className="text-gray-blue text-sm">{email}</p>
-            <span className="inline-block mt-1 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-sand/15 text-sand">
-              {roleLabel[profile?.role ?? ''] ?? profile?.role}
-            </span>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className="inline-block px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-sand/15 text-sand">
+                {roleLabel[profile?.role ?? ''] ?? profile?.role}
+              </span>
+              {profile?.isGoogleUser && (
+                <span className="inline-block px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-blue-500/15 text-blue-300">
+                  Google Account
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -237,7 +248,10 @@ export default function ProfileTab() {
             <ImageUpload
               label="Avatar"
               value={avatar}
-              onChange={setAvatar}
+              onChange={(value) => {
+                setFailedAvatarSrc('');
+                setAvatar(value);
+              }}
               shape="round"
               previewSize="w-16 h-16"
             />
@@ -308,7 +322,7 @@ export default function ProfileTab() {
             {profile.verificationDocument && (
               <div className="mt-2">
                 <p className="text-gray-blue text-xs font-medium uppercase tracking-wider mb-1.5">Submitted Document</p>
-                <img src={profile.verificationDocument} alt="Verification document" className="max-w-xs rounded-lg border border-white/10" />
+                <img src={resolveAssetUrl(profile.verificationDocument)} alt="Verification document" className="max-w-xs rounded-lg border border-white/10" />
               </div>
             )}
           </div>
@@ -322,7 +336,7 @@ export default function ProfileTab() {
               <label className="block text-gray-blue text-xs font-medium uppercase tracking-wider mb-1.5">Type of ID *</label>
               <select
                 value={idType}
-                onChange={(e) => setIdType(e.target.value)}
+                onChange={(e) => handleIdTypeChange(e.target.value)}
                 className="w-full max-w-xs px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-sand/50 focus:ring-1 focus:ring-sand/20 transition-all"
               >
                 <option value="" className="bg-[#0c1f35]">Select ID type...</option>
@@ -341,13 +355,13 @@ export default function ProfileTab() {
             <ImageUpload
               label="Verification Document"
               value={verificationDoc}
-              onChange={setVerificationDoc}
+              onChange={handleVerificationDocumentChange}
               shape="square"
               previewSize="w-40 h-28"
             />
             <button
               type="button"
-              onClick={handleSubmitVerification}
+              onClick={() => { void handleSubmitVerification(); }}
               disabled={submittingDoc || !verificationDoc.trim() || !idType}
               className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy font-semibold rounded-lg hover:shadow-lg hover:shadow-[#D4A574]/20 disabled:opacity-50 transition-all text-sm"
             >
@@ -357,7 +371,8 @@ export default function ProfileTab() {
         )}
       </div>
 
-      {/* Password form */}
+      {/* Password form — not available for Google sign-in users */}
+      {!profile?.isGoogleUser && (
       <form onSubmit={handleChangePassword} className="rounded-xl bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-white/[0.06] p-6">
         <h3 className="text-white font-semibold flex items-center gap-2 mb-5">
           <Lock className="w-4 h-4 text-sand" /> Change Password
@@ -393,6 +408,7 @@ export default function ProfileTab() {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

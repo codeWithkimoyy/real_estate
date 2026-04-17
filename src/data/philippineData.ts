@@ -5,6 +5,31 @@
 
 // ── Property ──────────────────────────────────────────────
 
+export interface DownPaymentCalculation {
+  price: number;
+  downPaymentPercentage: number;
+  loanTermYears: number;
+  interestRate: number;
+  downPaymentAmount: number;
+  loanAmount: number;
+  monthlyPayment: number;
+}
+
+export interface PropertyReservationSummary {
+  id: number;
+  userId: number;
+  userName?: string;
+  ownerId?: number;
+  ownerName?: string;
+  status: 'pending' | 'active' | 'expired' | 'cancelled' | 'completed';
+  expiresAt: string;
+  notes?: string | null;
+  paymentIntent?: 'walk_in' | 'online' | null;
+  calculatorSnapshot?: DownPaymentCalculation | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Property {
   id: number;
   title: string;
@@ -18,7 +43,7 @@ export interface Property {
   sqft: number;
   sqm: number;
   propertyType: 'house' | 'condo' | 'townhome' | 'apartment' | 'lot';
-  status: 'pending' | 'approved' | 'rejected' | 'sold';
+  status: 'draft' | 'pending_approval' | 'available' | 'reserved' | 'under_offer' | 'sold';
   image: string;
   images: string[];
   description: string;
@@ -34,6 +59,7 @@ export interface Property {
   proofDocument: string | null;
   reservationFee: number | null;
   coordinates: { lat: number; lng: number } | null;
+  reservation?: PropertyReservationSummary | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -161,15 +187,17 @@ export interface Payment {
   propertyId: number;
   propertyTitle: string;
   propertyImage: string;
+  reservationId: number | null;
   buyerId: number;
   buyerName: string;
   sellerId: number;
   sellerName: string;
   amount: number;
+  paymentChannel: 'walk_in' | 'online';
   paymentMethod: 'bank_transfer' | 'gcash' | 'pagibig' | 'cash' | 'credit_card';
   paymentType: 'reservation' | 'down_payment' | 'full_payment' | 'monthly';
   referenceNo: string | null;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
+  status: 'pending' | 'paid' | 'failed' | 'refunded';
   notes: string | null;
   proofUrl: string | null;
   reviewedBy: number | null;
@@ -193,9 +221,32 @@ export interface Reservation {
   userId: number;
   userName: string;
   ownerName: string;
+  ownerId: number;
   status: 'pending' | 'active' | 'expired' | 'cancelled' | 'completed';
   expiresAt: string;
   notes: string | null;
+  paymentIntent: 'walk_in' | 'online' | null;
+  calculatorSnapshot: DownPaymentCalculation | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Offer {
+  id: number;
+  propertyId: number;
+  propertyTitle: string;
+  reservationId: number;
+  buyerId: number;
+  buyerName: string;
+  sellerId: number;
+  sellerName: string;
+  amount: number;
+  message: string | null;
+  status: 'pending' | 'accepted' | 'rejected' | 'countered' | 'cancelled';
+  counterAmount: number | null;
+  counterMessage: string | null;
+  respondedBy: number | null;
+  respondedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -10,6 +10,30 @@ $authUser = require_auth($mysqli);
 $method   = $_SERVER['REQUEST_METHOD'];
 $userId   = (int) $authUser['id'];
 
+function user_column_exists(mysqli $mysqli, string $column): bool
+{
+    static $cache = [];
+    if (array_key_exists($column, $cache)) {
+        return $cache[$column];
+    }
+
+    $stmt = $mysqli->prepare(
+        'SELECT 1
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "users" AND COLUMN_NAME = ?
+         LIMIT 1'
+    );
+    if (!$stmt) {
+        $cache[$column] = false;
+        return false;
+    }
+
+    $stmt->bind_param('s', $column);
+    $stmt->execute();
+    $cache[$column] = (bool) $stmt->get_result()->fetch_assoc();
+    return $cache[$column];
+}
+
 // ── GET – Fetch own profile ──────────────────────────────
 
 if ($method === 'GET') {
@@ -20,6 +44,18 @@ if ($method === 'GET') {
     if (!$row) {
         send_json(404, ['ok' => false, 'error' => 'User not found']);
     }
+
+    $phone = (string) ($row['phone'] ?? '');
+    if (str_starts_with($phone, 'google-') && !empty($row['avatar'])) {
+        $cachedAvatar = cache_google_avatar((string) $row['avatar']);
+        if ($cachedAvatar !== null && $cachedAvatar !== $row['avatar']) {
+            $updAvatar = $mysqli->prepare('UPDATE users SET avatar = ? WHERE id = ?');
+            $updAvatar->bind_param('si', $cachedAvatar, $userId);
+            $updAvatar->execute();
+            $row['avatar'] = $cachedAvatar;
+        }
+    }
+
     send_json(200, ['ok' => true, 'data' => build_user_row($row)]);
 }
 
@@ -66,6 +102,18 @@ if ($method === 'PUT') {
 
     $stmt->execute();
     $updated = $stmt->get_result()->fetch_assoc();
+
+    $phone = (string) ($updated['phone'] ?? '');
+    if (str_starts_with($phone, 'google-') && !empty($updated['avatar'])) {
+        $cachedAvatar = cache_google_avatar((string) $updated['avatar']);
+        if ($cachedAvatar !== null && $cachedAvatar !== $updated['avatar']) {
+            $updAvatar = $mysqli->prepare('UPDATE users SET avatar = ? WHERE id = ?');
+            $updAvatar->bind_param('si', $cachedAvatar, $userId);
+            $updAvatar->execute();
+            $updated['avatar'] = $cachedAvatar;
+        }
+    }
+
     send_json(200, ['ok' => true, 'data' => build_user_row($updated)]);
 }
 
@@ -111,50 +159,119 @@ if ($method === 'POST') {
     $action  = trim((string) ($body['action'] ?? ''));
 
     if ($action === 'submit_verification') {
-        $document = sanitize_string((string) ($body['document'] ?? ''));
-        if ($document === '') {
-            send_json(422, ['ok' => false, 'error' => 'Please upload a verification document']);
+        try {
+            $document = sanitize_string((string) ($body['document'] ?? ''));
+            if ($document === '') {
+                send_json(422, ['ok' => false, 'error' => 'Please upload a verification document']);
+            }
+            $idType = sanitize_string((string) ($body['idType'] ?? ''), 50);
+            $docType = sanitize_string((string) ($body['documentType'] ?? ''), 50);
+
+            // Check current verification status – allow resubmission if rejected
+            $chk = $mysqli->prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+            if (!$chk) {
+                send_json(500, ['ok' => false, 'error' => 'Unable to process verification right now']);
+            }
+            $chk->bind_param('i', $userId);
+            $chk->execute();
+            $current = $chk->get_result()->fetch_assoc();
+            if (!$current) {
+                send_json(404, ['ok' => false, 'error' => 'User not found']);
+            }
+            if ($current && $current['verification_status'] === 'verified') {
+                send_json(400, ['ok' => false, 'error' => 'You are already verified']);
+            }
+
+            $setClauses = ['verification_document = ?', 'verification_status = "pending"'];
+            $types = 's';
+            $params = [$document];
+
+            if (user_column_exists($mysqli, 'id_type')) {
+                $setClauses[] = 'id_type = ?';
+                $types .= 's';
+                $params[] = $idType;
+            }
+
+            if (user_column_exists($mysqli, 'verification_document_type')) {
+                $setClauses[] = 'verification_document_type = ?';
+                $types .= 's';
+                $params[] = $docType;
+            }
+
+            $sql = 'UPDATE users SET ' . implode(', ', $setClauses) . ' WHERE id = ?';
+            $types .= 'i';
+            $params[] = $userId;
+
+            $upd = $mysqli->prepare($sql);
+            if (!$upd) {
+                send_json(500, ['ok' => false, 'error' => 'Unable to process verification right now']);
+            }
+
+            $upd->bind_param($types, ...$params);
+            $upd->execute();
+
+            // Non-critical side effects should never fail the main verification submission.
+            try {
+                $hStmt = $mysqli->prepare(
+                    'INSERT INTO verification_history (user_id, verifier_id, action, document_url, document_type, notes) VALUES (?, NULL, "submitted", ?, ?, "Document submitted for review")'
+                );
+                if ($hStmt) {
+                    $historyDocumentType = $docType !== '' ? $docType : $idType;
+                    $hStmt->bind_param('iss', $userId, $document, $historyDocumentType);
+                    $hStmt->execute();
+                }
+            } catch (Throwable $e) {
+                error_log('profile.php: verification_history insert failed: ' . $e->getMessage());
+            }
+
+            try {
+                audit_log($mysqli, $userId, 'UPDATE', 'user', $userId, 'Verification document submitted');
+            } catch (Throwable $e) {
+                error_log('profile.php: audit log failed during verification submit: ' . $e->getMessage());
+            }
+
+            try {
+                $admins = $mysqli->query("SELECT id FROM users WHERE user_type = 'administrator' AND deleted_at IS NULL");
+                if ($admins) {
+                    $first = (string) ($authUser['first_name'] ?? $authUser['firstName'] ?? 'User');
+                    $last = (string) ($authUser['last_name'] ?? $authUser['lastName'] ?? '');
+                    $userName = trim($first . ' ' . $last);
+                    if ($userName === '') {
+                        $userName = 'User';
+                    }
+                    while ($admin = $admins->fetch_assoc()) {
+                        create_notification($mysqli, (int) $admin['id'], 'system', 'Verification Request', "{$userName} submitted verification documents for review.", 'user', $userId);
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('profile.php: admin notification failed during verification submit: ' . $e->getMessage());
+            }
+
+            $sel = $mysqli->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+            $updated = null;
+            if ($sel) {
+                $sel->bind_param('i', $userId);
+                $sel->execute();
+                $updated = $sel->get_result()->fetch_assoc() ?: null;
+            }
+
+            if (!$updated) {
+                $updated = $current;
+                $updated['verification_status'] = 'pending';
+                $updated['verification_document'] = $document;
+                if (user_column_exists($mysqli, 'id_type')) {
+                    $updated['id_type'] = $idType !== '' ? $idType : ($updated['id_type'] ?? null);
+                }
+                if (user_column_exists($mysqli, 'verification_document_type')) {
+                    $updated['verification_document_type'] = $docType !== '' ? $docType : ($updated['verification_document_type'] ?? null);
+                }
+            }
+
+            send_json(200, ['ok' => true, 'data' => build_user_row($updated)]);
+        } catch (Throwable $e) {
+            error_log('profile.php: submit_verification failed: ' . $e->getMessage());
+            send_json(500, ['ok' => false, 'error' => 'Failed to submit verification document. Please try again.']);
         }
-        $idType = sanitize_string((string) ($body['idType'] ?? ''), 50);
-        $docType = sanitize_string((string) ($body['documentType'] ?? ''), 50);
-
-        // Check current verification status – allow resubmission if rejected
-        $chk = $mysqli->prepare('SELECT verification_status FROM users WHERE id = ? LIMIT 1');
-        $chk->bind_param('i', $userId);
-        $chk->execute();
-        $current = $chk->get_result()->fetch_assoc();
-        if ($current && $current['verification_status'] === 'verified') {
-            send_json(400, ['ok' => false, 'error' => 'You are already verified']);
-        }
-
-        $upd = $mysqli->prepare(
-            'UPDATE users SET verification_document = ?, id_type = ?, verification_document_type = ?,
-             verification_status = "pending" WHERE id = ?'
-        );
-        $upd->bind_param('sssi', $document, $idType, $docType, $userId);
-        $upd->execute();
-
-        // Log to verification_history
-        $hStmt = $mysqli->prepare(
-            'INSERT INTO verification_history (user_id, action, performed_by, notes) VALUES (?, "submitted", ?, "Document submitted for review")'
-        );
-        $hStmt->bind_param('ii', $userId, $userId);
-        $hStmt->execute();
-
-        audit_log($mysqli, $userId, 'UPDATE', 'user', $userId, 'Verification document submitted');
-
-        // Notify admins
-        $admins = $mysqli->query("SELECT id FROM users WHERE user_type = 'administrator' AND deleted_at IS NULL");
-        $userName = $authUser['first_name'] . ' ' . $authUser['last_name'];
-        while ($admin = $admins->fetch_assoc()) {
-            create_notification($mysqli, (int) $admin['id'], 'system', 'Verification Request', "{$userName} submitted verification documents for review.", 'user', $userId);
-        }
-
-        $sel = $mysqli->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
-        $sel->bind_param('i', $userId);
-        $sel->execute();
-        $updated = $sel->get_result()->fetch_assoc();
-        send_json(200, ['ok' => true, 'data' => build_user_row($updated)]);
     }
 
     send_json(422, ['ok' => false, 'error' => 'Unknown action']);

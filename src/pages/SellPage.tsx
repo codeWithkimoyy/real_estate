@@ -198,9 +198,10 @@ export default function SellPage() {
         coordinates: form.latitude && form.longitude
           ? { lat: Number(form.latitude), lng: Number(form.longitude) }
           : null,
+        submitForApproval: true,
       };
       await createProperty(payload);
-      setSubmitResult({ ok: true, text: 'Property listed! It will appear after admin approval.' });
+      setSubmitResult({ ok: true, text: 'Listing submitted for admin approval. It will become available after review.' });
       setForm(INITIAL);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -277,7 +278,7 @@ export default function SellPage() {
         </Link>
 
         <h1 className="text-3xl font-display font-bold text-white mb-2">Create New Listing</h1>
-        <p className="text-gray-blue mb-8">Fill in the property details. Your listing will be reviewed by an admin before going live.</p>
+        <p className="text-gray-blue mb-8">Fill in the property details. Your listing will move from draft to pending approval, then become available after admin review.</p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Title */}

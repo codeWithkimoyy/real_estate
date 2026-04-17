@@ -18,16 +18,19 @@ $action  = trim((string) ($payload['action'] ?? ''));
 
 function authUserResponse(array $row): array
 {
+    $phone = (string) $row['phone'];
+    $isGoogleUser = str_starts_with($phone, 'google-');
     return [
         'id'                 => (int) $row['id'],
         'firstName'          => (string) $row['first_name'],
         'lastName'           => (string) $row['last_name'],
         'email'              => (string) $row['email'],
-        'phone'              => (string) $row['phone'],
+        'phone'              => $isGoogleUser ? '' : $phone,
         'role'               => (string) $row['user_type'],
         'avatar'             => $row['avatar'] ?? null,
         'emailVerifiedAt'    => $row['email_verified_at'] ?? null,
         'verificationStatus' => (string) ($row['verification_status'] ?? 'unverified'),
+        'isGoogleUser'       => $isGoogleUser,
     ];
 }
 
@@ -85,11 +88,266 @@ function fetchGoogleTokenInfo(string $idToken): ?array
     return is_array($decoded) ? $decoded : ['_error' => 'Invalid response from Google token verification endpoint'];
 }
 
+function smtp_read_response($socket): string
+{
+    $response = '';
+    while (($line = fgets($socket, 515)) !== false) {
+        $response .= $line;
+        // Multi-line SMTP responses use "250-..." until the final "250 ..."
+        if (preg_match('/^\d{3}\s/', $line) === 1) {
+            break;
+        }
+    }
+    return $response;
+}
+
+function smtp_expect_code(string $response, array $expectedCodes): bool
+{
+    foreach ($expectedCodes as $code) {
+        if (str_starts_with($response, (string) $code)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function smtp_send_command($socket, string $command, array $expectedCodes): bool
+{
+    if (fwrite($socket, $command . "\r\n") === false) {
+        return false;
+    }
+    $response = smtp_read_response($socket);
+    return smtp_expect_code($response, $expectedCodes);
+}
+
+function send_email_via_smtp(string $toEmail, string $subject, string $plainTextBody, ?string $htmlBody = null, ?array $inlineImage = null): bool
+{
+    global $config;
+
+    $host = trim((string) ($config['smtp_host'] ?? ''));
+    $port = (int) ($config['smtp_port'] ?? 587);
+    $secure = strtolower(trim((string) ($config['smtp_secure'] ?? 'tls')));
+    $username = trim((string) ($config['smtp_user'] ?? ''));
+    $password = (string) ($config['smtp_pass'] ?? '');
+    $fromEmail = trim((string) ($config['smtp_from'] ?? ''));
+    $fromName = trim((string) ($config['smtp_from_name'] ?? 'Brader Real Estate'));
+    $timeout = max(5, (int) ($config['smtp_timeout'] ?? 15));
+
+    if ($host === '' || $username === '' || $password === '' || $fromEmail === '') {
+        return false;
+    }
+
+    $transport = $secure === 'ssl' ? 'ssl://' . $host : 'tcp://' . $host;
+    $errno = 0;
+    $errstr = '';
+    $socket = @stream_socket_client($transport . ':' . $port, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT);
+    if ($socket === false) {
+        error_log('SMTP connect failed: ' . $errstr . ' (' . $errno . ')');
+        return false;
+    }
+
+    stream_set_timeout($socket, $timeout);
+
+    $greeting = smtp_read_response($socket);
+    if (!smtp_expect_code($greeting, [220])) {
+        fclose($socket);
+        return false;
+    }
+
+    if (!smtp_send_command($socket, 'EHLO localhost', [250])) {
+        fclose($socket);
+        return false;
+    }
+
+    if ($secure === 'tls') {
+        if (!smtp_send_command($socket, 'STARTTLS', [220])) {
+            fclose($socket);
+            return false;
+        }
+        $cryptoOk = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+        if ($cryptoOk !== true) {
+            fclose($socket);
+            return false;
+        }
+        if (!smtp_send_command($socket, 'EHLO localhost', [250])) {
+            fclose($socket);
+            return false;
+        }
+    }
+
+    if (!smtp_send_command($socket, 'AUTH LOGIN', [334])) {
+        fclose($socket);
+        return false;
+    }
+    if (!smtp_send_command($socket, base64_encode($username), [334])) {
+        fclose($socket);
+        return false;
+    }
+    if (!smtp_send_command($socket, base64_encode($password), [235])) {
+        fclose($socket);
+        return false;
+    }
+
+    if (!smtp_send_command($socket, 'MAIL FROM:<' . $fromEmail . '>', [250])) {
+        fclose($socket);
+        return false;
+    }
+    if (!smtp_send_command($socket, 'RCPT TO:<' . $toEmail . '>', [250, 251])) {
+        fclose($socket);
+        return false;
+    }
+    if (!smtp_send_command($socket, 'DATA', [354])) {
+        fclose($socket);
+        return false;
+    }
+
+    $safeFromName = str_replace(["\r", "\n"], '', $fromName);
+    $safeSubject = str_replace(["\r", "\n"], '', $subject);
+    $headers = [
+        'From: ' . $safeFromName . ' <' . $fromEmail . '>',
+        'To: <' . $toEmail . '>',
+        'Subject: ' . $safeSubject,
+        'Date: ' . gmdate('D, d M Y H:i:s') . ' +0000',
+        'MIME-Version: 1.0',
+    ];
+
+    if ($htmlBody !== null && trim($htmlBody) !== '') {
+        $hasInlineImage =
+            is_array($inlineImage)
+            && !empty($inlineImage['path'])
+            && is_string($inlineImage['path'])
+            && file_exists($inlineImage['path']);
+
+        if ($hasInlineImage) {
+            $relatedBoundary = '=_brader_rel_' . bin2hex(random_bytes(12));
+            $altBoundary = '=_brader_alt_' . bin2hex(random_bytes(12));
+            $headers[] = 'Content-Type: multipart/related; boundary="' . $relatedBoundary . '"';
+
+            $imagePath = (string) $inlineImage['path'];
+            $imageMime = trim((string) ($inlineImage['mime'] ?? 'image/png'));
+            $imageCid = trim((string) ($inlineImage['cid'] ?? 'brand-logo'));
+            $imageName = basename($imagePath);
+            $imageRaw = file_get_contents($imagePath);
+            $imageBase64 = $imageRaw !== false ? chunk_split(base64_encode($imageRaw)) : '';
+
+            $mimeBody = [];
+            $mimeBody[] = '--' . $relatedBoundary;
+            $mimeBody[] = 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"';
+            $mimeBody[] = '';
+            $mimeBody[] = '--' . $altBoundary;
+            $mimeBody[] = 'Content-Type: text/plain; charset=UTF-8';
+            $mimeBody[] = 'Content-Transfer-Encoding: 8bit';
+            $mimeBody[] = '';
+            $mimeBody[] = $plainTextBody;
+            $mimeBody[] = '';
+            $mimeBody[] = '--' . $altBoundary;
+            $mimeBody[] = 'Content-Type: text/html; charset=UTF-8';
+            $mimeBody[] = 'Content-Transfer-Encoding: 8bit';
+            $mimeBody[] = '';
+            $mimeBody[] = $htmlBody;
+            $mimeBody[] = '';
+            $mimeBody[] = '--' . $altBoundary . '--';
+            $mimeBody[] = '';
+
+            if ($imageBase64 !== '') {
+                $mimeBody[] = '--' . $relatedBoundary;
+                $mimeBody[] = 'Content-Type: ' . $imageMime . '; name="' . $imageName . '"';
+                $mimeBody[] = 'Content-Transfer-Encoding: base64';
+                $mimeBody[] = 'Content-ID: <' . $imageCid . '>';
+                $mimeBody[] = 'Content-Disposition: inline; filename="' . $imageName . '"';
+                $mimeBody[] = '';
+                $mimeBody[] = $imageBase64;
+            }
+
+            $mimeBody[] = '--' . $relatedBoundary . '--';
+
+            $data = implode("\r\n", $headers) . "\r\n\r\n" . implode("\r\n", $mimeBody) . "\r\n.\r\n";
+        } else {
+            $boundary = '=_brader_' . bin2hex(random_bytes(12));
+            $headers[] = 'Content-Type: multipart/alternative; boundary="' . $boundary . '"';
+
+            $mimeBody = [];
+            $mimeBody[] = '--' . $boundary;
+            $mimeBody[] = 'Content-Type: text/plain; charset=UTF-8';
+            $mimeBody[] = 'Content-Transfer-Encoding: 8bit';
+            $mimeBody[] = '';
+            $mimeBody[] = $plainTextBody;
+            $mimeBody[] = '';
+            $mimeBody[] = '--' . $boundary;
+            $mimeBody[] = 'Content-Type: text/html; charset=UTF-8';
+            $mimeBody[] = 'Content-Transfer-Encoding: 8bit';
+            $mimeBody[] = '';
+            $mimeBody[] = $htmlBody;
+            $mimeBody[] = '';
+            $mimeBody[] = '--' . $boundary . '--';
+
+            $data = implode("\r\n", $headers) . "\r\n\r\n" . implode("\r\n", $mimeBody) . "\r\n.\r\n";
+        }
+    } else {
+        $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+        $headers[] = 'Content-Transfer-Encoding: 8bit';
+        $data = implode("\r\n", $headers) . "\r\n\r\n" . $plainTextBody . "\r\n.\r\n";
+    }
+
+    if (fwrite($socket, $data) === false) {
+        fclose($socket);
+        return false;
+    }
+
+    $queued = smtp_read_response($socket);
+    smtp_send_command($socket, 'QUIT', [221]);
+    fclose($socket);
+
+    return smtp_expect_code($queued, [250]);
+}
+
+function send_password_reset_code_email(string $toEmail, string $resetCode): bool
+{
+    global $config;
+    $appName = trim((string) ($config['smtp_from_name'] ?? 'Brader Real Estate'));
+    $subject = 'Your ' . $appName . ' password reset code';
+    $safeAppName = htmlspecialchars($appName, ENT_QUOTES, 'UTF-8');
+    $safeResetCode = htmlspecialchars($resetCode, ENT_QUOTES, 'UTF-8');
+    $logoCid = 'brand-logo';
+    $logoPath = __DIR__ . '/../public/images/logo.png';
+    $logoAvailable = file_exists($logoPath);
+
+    $body = "Your password reset code is: {$resetCode}\n\n" .
+        "This code expires in 1 hour.\n" .
+        "If you did not request this, you can ignore this email.";
+
+    $htmlBody = '<!doctype html>' .
+        '<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' .
+        '<body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#0f2742;">' .
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px;">' .
+        '<tr><td align="center">' .
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e9f0;">' .
+        '<tr><td style="padding:24px 24px 8px;text-align:center;">' .
+        ($logoAvailable
+            ? '<img src="cid:' . $logoCid . '" alt="' . $safeAppName . '" style="max-width:170px;height:auto;display:inline-block;" />'
+            : '<h2 style="margin:0;font-size:22px;line-height:1.3;">' . $safeAppName . '</h2>') .
+        '</td></tr>' .
+        '<tr><td style="padding:8px 24px 0;">' .
+        '<h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#0f2742;">Your Password Reset Code</h1>' .
+        '<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#3f5570;">Use the code below to reset your password. It expires in 1 hour.</p>' .
+        '<div style="margin:0 0 18px;padding:14px 16px;background:#0f2742;color:#ffffff;border-radius:12px;text-align:center;font-size:30px;letter-spacing:8px;font-weight:700;">' . $safeResetCode . '</div>' .
+        '<p style="margin:0 0 22px;font-size:13px;line-height:1.6;color:#6b7e95;">If you did not request this, you can safely ignore this email.</p>' .
+        '</td></tr>' .
+        '<tr><td style="padding:14px 24px 24px;background:#f9fbfd;border-top:1px solid #edf1f6;">' .
+        '<p style="margin:0;font-size:12px;line-height:1.5;color:#7b8ea6;">Sent by ' . $safeAppName . '</p>' .
+        '</td></tr>' .
+        '</table></td></tr></table></body></html>';
+
+    $inlineImage = $logoAvailable
+        ? ['path' => $logoPath, 'cid' => $logoCid, 'mime' => 'image/png']
+        : null;
+
+    return send_email_via_smtp($toEmail, $subject, $body, $htmlBody, $inlineImage);
+}
+
 // ── Register ─────────────────────────────────────────────
 
 if ($action === 'register') {
-    check_rate_limit($mysqli, 'register');
-
     $firstName = sanitize_string((string) ($payload['firstName'] ?? ''), 120);
     $lastName  = sanitize_string((string) ($payload['lastName']  ?? ''), 120);
     $email     = validate_email((string) ($payload['email'] ?? ''));
@@ -140,8 +398,6 @@ if ($action === 'register') {
 // ── Login ────────────────────────────────────────────────
 
 if ($action === 'login') {
-    check_rate_limit($mysqli, 'login');
-
     $email    = strtolower(trim((string) ($payload['email'] ?? '')));
     $password = (string) ($payload['password'] ?? '');
 
@@ -176,8 +432,6 @@ if ($action === 'login') {
 // ── Google Login ─────────────────────────────────────────
 
 if ($action === 'google_login') {
-    check_rate_limit($mysqli, 'google_login');
-
     $idToken = trim((string) ($payload['idToken'] ?? ''));
     if ($idToken === '') {
         send_json(422, ['ok' => false, 'error' => 'Google ID token is required']);
@@ -216,6 +470,7 @@ if ($action === 'google_login') {
     $lastName = sanitize_string((string) (count($nameParts) > 1 ? implode(' ', array_slice($nameParts, 1)) : 'User'), 120);
     $picture = trim((string) ($tokenInfo['picture'] ?? ''));
     $subject = trim((string) ($tokenInfo['sub'] ?? ''));
+    $cachedAvatar = $picture !== '' ? (cache_google_avatar($picture) ?? $picture) : null;
 
     $stmt = $mysqli->prepare('SELECT * FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1');
     $stmt->bind_param('s', $email);
@@ -248,11 +503,12 @@ if ($action === 'google_login') {
     // Existing user — log in directly
     // Refresh avatar from Google when available to recover from stale/truncated URLs.
     if ($picture !== '' && (string) ($user['avatar'] ?? '') !== $picture) {
+        $avatarToStore = $cachedAvatar ?? $picture;
         $updAvatar = $mysqli->prepare('UPDATE users SET avatar = ? WHERE id = ?');
         $uid = (int) $user['id'];
-        $updAvatar->bind_param('si', $picture, $uid);
+        $updAvatar->bind_param('si', $avatarToStore, $uid);
         $updAvatar->execute();
-        $user['avatar'] = $picture;
+        $user['avatar'] = $avatarToStore;
     }
 
     if (($user['email_verified_at'] ?? null) === null) {
@@ -273,8 +529,6 @@ if ($action === 'google_login') {
 // ── Google Register (complete pending Google sign-up with role) ───
 
 if ($action === 'google_register') {
-    check_rate_limit($mysqli, 'google_login');
-
     $pendingToken = trim((string) ($payload['pendingToken'] ?? ''));
     $role = trim((string) ($payload['role'] ?? ''));
     $publicRoles = ['agent', 'seller', 'buyer', 'clerk'];
@@ -333,7 +587,7 @@ if ($action === 'google_register') {
             $phone = 'google-' . substr($subject !== '' ? $subject : md5($email), 0, 20);
             $tempPassword = bin2hex(random_bytes(24));
             $hash = hash_password($tempPassword);
-            $avatar = $picture !== '' ? $picture : null;
+            $avatar = $cachedAvatar;
 
             $upd = $mysqli->prepare(
                 'UPDATE users SET first_name = ?, last_name = ?, phone = ?, password_hash = ?,
@@ -353,6 +607,7 @@ if ($action === 'google_register') {
             $phone = 'google-' . substr($subject !== '' ? $subject : md5($email), 0, 20);
             $tempPassword = bin2hex(random_bytes(24));
             $hash = hash_password($tempPassword);
+            $avatar = $cachedAvatar;
 
             $ins = $mysqli->prepare(
                 'INSERT INTO users (first_name, last_name, email, phone, password_hash, user_type, avatar, email_verified_at)
@@ -448,12 +703,15 @@ if ($action === 'logout_all') {
 // ── Forgot Password (request reset) ──────────────────────
 
 if ($action === 'forgot_password') {
-    check_rate_limit($mysqli, 'password_reset', null, 3, 3600);
-
     $email = strtolower(trim((string) ($payload['email'] ?? '')));
     if ($email === '') {
         send_json(422, ['ok' => false, 'error' => 'Email is required']);
     }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        send_json(422, ['ok' => false, 'error' => 'Please provide a valid email']);
+    }
+
+    $isDev = (($config['app_env'] ?? 'development') === 'development');
 
     // Always return success to prevent email enumeration
     $stmt = $mysqli->prepare('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1');
@@ -462,56 +720,80 @@ if ($action === 'forgot_password') {
     $user = $stmt->get_result()->fetch_assoc();
 
     if ($user) {
-        $resetToken = bin2hex(random_bytes(32));
-        $tokenHash  = hash('sha256', $resetToken);
-        $expiresAt  = date('Y-m-d H:i:s', time() + 3600); // 1 hour
+        $resetCode = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $tokenHash  = hash('sha256', $resetCode);
 
         // Invalidate old tokens
         $del = $mysqli->prepare('DELETE FROM password_resets WHERE user_id = ?');
         $del->bind_param('i', $user['id']);
         $del->execute();
 
-        $ins = $mysqli->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)');
-        $ins->bind_param('iss', $user['id'], $tokenHash, $expiresAt);
+        // Use DB server time for expiry to avoid PHP/MySQL timezone drift issues.
+        $ins = $mysqli->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))');
+        $ins->bind_param('is', $user['id'], $tokenHash);
         $ins->execute();
+
+        $emailSent = send_password_reset_code_email($email, $resetCode);
+        if (!$emailSent) {
+            error_log('Failed to send password reset code email to ' . $email);
+        }
 
         audit_log($mysqli, (int) $user['id'], 'PASSWORD_RESET_REQUEST', 'user', (int) $user['id'], "Reset requested for {$email}");
 
-        // In production, send email. For now return token in dev mode.
-        $responseData = ['message' => 'If the email exists, a reset link has been sent.'];
-        if (($config['app_env'] ?? 'development') === 'development') {
-            $responseData['resetToken'] = $resetToken;
-        }
+        // Send neutral response to prevent account/email enumeration.
+        $responseData = ['message' => 'If the email exists, a reset code has been sent.'];
     } else {
-        $responseData = ['message' => 'If the email exists, a reset link has been sent.'];
+        $responseData = ['message' => 'If the email exists, a reset code has been sent.'];
     }
 
     send_json(200, ['ok' => true, 'data' => $responseData]);
 }
 
-// ── Reset Password (with token) ──────────────────────────
+// ── Reset Password (with code) ───────────────────────────
 
 if ($action === 'reset_password') {
-    $resetToken  = trim((string) ($payload['resetToken'] ?? ''));
+    $email       = strtolower(trim((string) ($payload['email'] ?? '')));
+    $resetCode   = trim((string) ($payload['resetCode'] ?? ''));
     $newPassword = (string) ($payload['newPassword'] ?? '');
 
-    if ($resetToken === '' || $newPassword === '') {
-        send_json(422, ['ok' => false, 'error' => 'Token and new password are required']);
+    if ($email === '' || $resetCode === '' || $newPassword === '') {
+        send_json(422, ['ok' => false, 'error' => 'Email, reset code, and new password are required']);
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        send_json(422, ['ok' => false, 'error' => 'Please provide a valid email']);
+    }
+
+    $isDev = (($config['app_env'] ?? 'development') === 'development');
+
+    if (!preg_match('/^\d{6}$/', $resetCode)) {
+        send_json(422, ['ok' => false, 'error' => 'Reset code must be a 6-digit number']);
     }
     if (strlen($newPassword) < 8) {
         send_json(422, ['ok' => false, 'error' => 'Password must be at least 8 characters']);
     }
+    if (strlen($newPassword) > 72) {
+        send_json(422, ['ok' => false, 'error' => 'Password must not exceed 72 characters']);
+    }
 
-    $tokenHash = hash('sha256', $resetToken);
+    $userStmt = $mysqli->prepare('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1');
+    $userStmt->bind_param('s', $email);
+    $userStmt->execute();
+    $user = $userStmt->get_result()->fetch_assoc();
+
+    if (!$user) {
+        send_json(422, ['ok' => false, 'error' => 'Invalid email or reset code']);
+    }
+
+    $tokenHash = hash('sha256', $resetCode);
     $stmt = $mysqli->prepare(
-        'SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > NOW() AND used_at IS NULL LIMIT 1'
+        'SELECT * FROM password_resets WHERE user_id = ? AND token_hash = ? AND expires_at > NOW() AND used_at IS NULL ORDER BY id DESC LIMIT 1'
     );
-    $stmt->bind_param('s', $tokenHash);
+    $stmt->bind_param('is', $user['id'], $tokenHash);
     $stmt->execute();
     $reset = $stmt->get_result()->fetch_assoc();
 
     if (!$reset) {
-        send_json(422, ['ok' => false, 'error' => 'Invalid or expired reset token']);
+        send_json(422, ['ok' => false, 'error' => 'Invalid or expired reset code']);
     }
 
     $newHash = hash_password($newPassword);
@@ -574,8 +856,6 @@ if ($action === 'request_email_verification') {
     if ($user['email_verified_at'] !== null) {
         send_json(200, ['ok' => true, 'data' => ['message' => 'Email already verified.']]);
     }
-
-    check_rate_limit($mysqli, 'email_verify', 'user:' . $user['id'], 3, 3600);
 
     $verifyToken = bin2hex(random_bytes(32));
     $tokenHash   = hash('sha256', $verifyToken);

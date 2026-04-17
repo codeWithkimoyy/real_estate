@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -9,12 +9,12 @@ import {
 import { formatPrice, type Property } from '../data/philippineData';
 import { getProperties, addFavorite, removeFavorite, getFavorites } from '../lib/api';
 import { isLoggedIn } from '../lib/auth';
+import FloatingParticles from '../components/FloatingParticles';
 
 gsap.registerPlugin(ScrollTrigger);
 
 export default function ListingsPage() {
   const [properties, setProperties] = useState<Property[]>([]);
-  const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [showFilters, setShowFilters] = useState(false);
@@ -35,9 +35,8 @@ export default function ListingsPage() {
 
   useEffect(() => {
     const loadProperties = async () => {
-      const data = await getProperties({ status: 'approved' });
+      const data = await getProperties({ status: 'available' });
       setProperties(data.items);
-      setFilteredProperties(data.items);
       setIsLoading(false);
 
       if (isLoggedIn()) {
@@ -50,6 +49,53 @@ export default function ListingsPage() {
 
     void loadProperties();
   }, []);
+
+  const filteredProperties = useMemo(() => {
+    let result = [...properties];
+
+    if (filters.location) {
+      result = result.filter(p =>
+        p.city.toLowerCase().includes(filters.location.toLowerCase()) ||
+        p.province.toLowerCase().includes(filters.location.toLowerCase())
+      );
+    }
+
+    if (filters.propertyType !== 'all') {
+      result = result.filter(p => p.propertyType === filters.propertyType);
+    }
+
+    if (filters.minPrice) {
+      result = result.filter(p => p.price >= parseInt(filters.minPrice));
+    }
+
+    if (filters.maxPrice) {
+      result = result.filter(p => p.price <= parseInt(filters.maxPrice));
+    }
+
+    if (filters.beds !== 'any') {
+      result = result.filter(p => p.beds >= parseInt(filters.beds));
+    }
+
+    if (filters.baths !== 'any') {
+      result = result.filter(p => p.baths >= parseInt(filters.baths));
+    }
+
+    switch (sortBy) {
+      case 'price-low':
+        result.sort((a, b) => a.price - b.price);
+        break;
+      case 'price-high':
+        result.sort((a, b) => b.price - a.price);
+        break;
+      case 'sqm':
+        result.sort((a, b) => b.sqm - a.sqm);
+        break;
+      default:
+        result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+
+    return result;
+  }, [filters, sortBy, properties]);
 
   useEffect(() => {
     if (isLoading || filteredProperties.length === 0 || !listingsRef.current) return;
@@ -76,55 +122,6 @@ export default function ListingsPage() {
 
     return () => ctx.revert();
   }, [filteredProperties, isLoading]);
-
-  // Apply filters
-  useEffect(() => {
-    let result = [...properties];
-
-    if (filters.location) {
-      result = result.filter(p => 
-        p.city.toLowerCase().includes(filters.location.toLowerCase()) ||
-        p.province.toLowerCase().includes(filters.location.toLowerCase())
-      );
-    }
-
-    if (filters.propertyType !== 'all') {
-      result = result.filter(p => p.propertyType === filters.propertyType);
-    }
-
-    if (filters.minPrice) {
-      result = result.filter(p => p.price >= parseInt(filters.minPrice));
-    }
-
-    if (filters.maxPrice) {
-      result = result.filter(p => p.price <= parseInt(filters.maxPrice));
-    }
-
-    if (filters.beds !== 'any') {
-      result = result.filter(p => p.beds >= parseInt(filters.beds));
-    }
-
-    if (filters.baths !== 'any') {
-      result = result.filter(p => p.baths >= parseInt(filters.baths));
-    }
-
-    // Sort
-    switch (sortBy) {
-      case 'price-low':
-        result.sort((a, b) => a.price - b.price);
-        break;
-      case 'price-high':
-        result.sort((a, b) => b.price - a.price);
-        break;
-      case 'sqm':
-        result.sort((a, b) => b.sqm - a.sqm);
-        break;
-      default:
-        result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }
-
-    setFilteredProperties(result);
-  }, [filters, sortBy, properties]);
 
   const toggleFavorite = async (id: number) => {
     if (!isLoggedIn()) return;
@@ -154,22 +151,7 @@ export default function ListingsPage() {
   return (
     <div className="min-h-screen bg-navy pt-20 relative overflow-hidden">
       {/* Background particles */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full bg-sand/10"
-            style={{
-              width: `${2 + Math.random() * 3}px`,
-              height: `${2 + Math.random() * 3}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `float-particle ${10 + Math.random() * 15}s linear infinite`,
-              animationDelay: `${Math.random() * 10}s`,
-            }}
-          />
-        ))}
-      </div>
+      <FloatingParticles count={12} className="fixed inset-0 pointer-events-none overflow-hidden z-0" />
 
       {/* Search Header */}
       <div className="sticky top-14 z-40 bg-navy/95 backdrop-blur-xl border-b border-white/[0.06] shadow-lg shadow-black/5">
@@ -340,15 +322,15 @@ export default function ListingsPage() {
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="bg-white/[0.04] rounded-2xl overflow-hidden border border-white/[0.06]">
-                <div className="aspect-[4/3] skeleton" />
-                <div className="p-5 space-y-3">
-                  <div className="h-5 w-3/4 skeleton rounded-lg" />
-                  <div className="h-4 w-1/2 skeleton rounded-lg" />
+              <div key={i} className="skeleton-card" style={{ animationDelay: `${i * 80}ms` }}>
+                <div className="skeleton-image" />
+                <div className="skeleton-body">
+                  <div className="skeleton-line" style={{ width: '75%' }} />
+                  <div className="skeleton-line" style={{ width: '50%' }} />
                   <div className="flex gap-3 mt-4">
-                    <div className="h-7 w-16 skeleton rounded-lg" />
-                    <div className="h-7 w-16 skeleton rounded-lg" />
-                    <div className="h-7 w-20 skeleton rounded-lg" />
+                    <div className="skeleton-line" style={{ width: '4rem', height: '1.75rem', marginBottom: 0 }} />
+                    <div className="skeleton-line" style={{ width: '4rem', height: '1.75rem', marginBottom: 0 }} />
+                    <div className="skeleton-line" style={{ width: '5rem', height: '1.75rem', marginBottom: 0 }} />
                   </div>
                 </div>
               </div>
@@ -448,15 +430,15 @@ export default function ListingsPage() {
         )}
 
         {filteredProperties.length === 0 && !isLoading && (
-          <div className="text-center py-24">
-            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-sand/20 to-sand/5 rounded-3xl flex items-center justify-center border border-white/10 animate-float-slow">
-              <Search className="w-12 h-12 text-sand/60" />
+          <div className="empty-state py-20">
+            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-sand/15 to-sand/5 rounded-3xl flex items-center justify-center border border-sand/10 animate-float-slow">
+              <Search className="w-10 h-10 text-sand/50" />
             </div>
-            <h3 className="text-2xl font-display font-bold text-white mb-3">No properties found</h3>
-            <p className="text-gray-blue mb-8 max-w-sm mx-auto">Try adjusting your filters or search for a different location to see more results.</p>
+            <h3 className="empty-state-title text-2xl mb-3">No properties found</h3>
+            <p className="empty-state-description mb-8">Try adjusting your filters or search for a different location to see more results.</p>
             <button 
               onClick={clearFilters}
-              className="btn-magnetic px-8 py-3.5 bg-gradient-to-r from-[#D4A574] to-[#c99660] text-navy font-semibold rounded-xl text-sm uppercase tracking-wider"
+              className="btn-solid rounded-xl text-sm"
             >
               Clear All Filters
             </button>

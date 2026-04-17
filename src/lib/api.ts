@@ -16,6 +16,7 @@ import type {
   AuditLog,
   Payment,
   Reservation,
+  Offer,
   Notification,
   Dispute,
   PaginationMeta,
@@ -24,6 +25,7 @@ import type {
 
 const DEFAULT_API = 'http://localhost/Activities/real_estate/api';
 const API = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API).replace(/\/$/, '');
+const ASSET_BASE = API.replace(/\/api$/, '');
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -133,6 +135,43 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
   return '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
 }
 
+export function resolveAssetUrl(assetUrl: string): string {
+  if (!assetUrl) return '';
+
+  const normalizeUploadPath = (value: string): string => {
+    if (value.includes('/public/images/uploads/')) {
+      return value;
+    }
+    return value.replace('/images/uploads/', '/public/images/uploads/');
+  };
+
+  if (/^(https?:)?\/\//.test(assetUrl)) {
+    try {
+      const parsed = new URL(assetUrl, window.location.origin);
+      parsed.pathname = normalizeUploadPath(parsed.pathname);
+      return parsed.toString();
+    } catch {
+      return assetUrl;
+    }
+  }
+
+  if (assetUrl.startsWith('data:') || assetUrl.startsWith('blob:')) {
+    return assetUrl;
+  }
+
+  assetUrl = normalizeUploadPath(assetUrl);
+  if (!assetUrl.startsWith('/')) {
+    return assetUrl;
+  }
+
+  if (/^https?:\/\//.test(ASSET_BASE)) {
+    return `${ASSET_BASE}${assetUrl}`;
+  }
+
+  const base = `${window.location.origin}${ASSET_BASE.startsWith('/') ? ASSET_BASE : `/${ASSET_BASE}`}`;
+  return `${base}${assetUrl}`;
+}
+
 export interface PaginationParams {
   page?: number;
   perPage?: number;
@@ -173,7 +212,9 @@ export async function getPropertyById(id: number): Promise<Property> {
 }
 
 export async function createProperty(
-  data: Omit<Property, 'id' | 'ownerName' | 'createdAt' | 'updatedAt' | 'status'>,
+  data: Omit<Property, 'id' | 'ownerName' | 'createdAt' | 'updatedAt' | 'status'> & {
+    submitForApproval?: boolean;
+  },
 ): Promise<Property> {
   return request<Property>('properties.php', {
     method: 'POST',
@@ -335,9 +376,11 @@ export async function getAuditLogs(params?: {
 
 export async function getPayments(params?: {
   propertyId?: number;
+  reservationId?: number;
 } & PaginationParams): Promise<PaginatedResult<Payment>> {
   return paginatedRequest<Payment>(`payments.php${qs({
     propertyId: params?.propertyId,
+    reservationId: params?.reservationId,
     page: params?.page,
     per_page: params?.perPage,
   })}`);
@@ -345,7 +388,9 @@ export async function getPayments(params?: {
 
 export async function createPayment(data: {
   propertyId: number;
+  reservationId: number;
   amount: number;
+  paymentChannel: 'walk_in' | 'online';
   paymentMethod: string;
   paymentType: string;
   referenceNo?: string;
@@ -360,7 +405,7 @@ export async function createPayment(data: {
 
 export async function updatePaymentStatus(
   id: number,
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded',
+  status: 'pending' | 'paid' | 'failed' | 'refunded',
 ): Promise<Payment> {
   return request<Payment>(`payments.php?id=${id}`, {
     method: 'PATCH',
@@ -456,6 +501,7 @@ export interface ProfileData {
   role: string;
   avatar: string | null;
   bio: string | null;
+  isGoogleUser: boolean;
   emailVerifiedAt: string | null;
   verificationStatus: 'unverified' | 'pending' | 'verified' | 'rejected';
   verificationDocument: string | null;
@@ -527,6 +573,16 @@ export async function createReservation(data: {
   propertyId: number;
   days?: number;
   notes?: string;
+  paymentIntent: 'walk_in' | 'online';
+  calculatorSnapshot: {
+    price: number;
+    downPaymentPercentage: number;
+    loanTermYears: number;
+    interestRate: number;
+    downPaymentAmount: number;
+    loanAmount: number;
+    monthlyPayment: number;
+  };
 }): Promise<Reservation> {
   return request<Reservation>('reservations.php', {
     method: 'POST',
@@ -541,6 +597,46 @@ export async function updateReservationStatus(
   return request<Reservation>(`reservations.php?id=${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
+  });
+}
+
+export async function getOffers(params?: {
+  propertyId?: number;
+  reservationId?: number;
+  status?: string;
+} & PaginationParams): Promise<PaginatedResult<Offer>> {
+  return paginatedRequest<Offer>(`offers.php${qs({
+    propertyId: params?.propertyId,
+    reservationId: params?.reservationId,
+    status: params?.status,
+    page: params?.page,
+    per_page: params?.perPage,
+  })}`);
+}
+
+export async function createOffer(data: {
+  propertyId: number;
+  reservationId: number;
+  amount: number;
+  message?: string;
+}): Promise<Offer> {
+  return request<Offer>('offers.php', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function respondToOffer(
+  id: number,
+  data: {
+    action: 'accept' | 'reject' | 'counter' | 'cancel';
+    counterAmount?: number;
+    counterMessage?: string;
+  },
+): Promise<Offer> {
+  return request<Offer>(`offers.php?id=${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
   });
 }
 
@@ -683,5 +779,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   if (!response.ok || !isApiSuccess(json)) {
     throw new Error(getApiErrorMessage(json, response.status));
   }
-  return json.data as UploadResult;
+  const result = json.data as UploadResult;
+  return {
+    ...result,
+    url: resolveAssetUrl(result.url),
+  };
 }

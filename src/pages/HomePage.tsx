@@ -8,32 +8,16 @@ import {
   Sparkles, Shield, Clock, ChevronRight,
 } from 'lucide-react';
 import { formatPrice, type Agent, type Property, type Neighborhood, type Testimonial } from '../data/philippineData';
-import { getAgents, getProperties, getNeighborhoods, getTestimonials, addFavorite, removeFavorite, getFavorites } from '../lib/api';
+import { getAgents, getProperties, getNeighborhoods, getTestimonials, addFavorite, removeFavorite, getFavorites, resolveAssetUrl } from '../lib/api';
 import { isLoggedIn } from '../lib/auth';
 import BrandLogo from '../components/BrandLogo';
+import FloatingParticles from '../components/FloatingParticles';
 
 gsap.registerPlugin(ScrollTrigger);
 
 /* ── Floating particles background ──────────────────────── */
 function Particles({ count = 30 }: { count?: number }) {
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="absolute rounded-full bg-sand/20"
-          style={{
-            width: `${2 + Math.random() * 4}px`,
-            height: `${2 + Math.random() * 4}px`,
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            animation: `float-particle ${8 + Math.random() * 12}s linear infinite`,
-            animationDelay: `${Math.random() * 10}s`,
-          }}
-        />
-      ))}
-    </div>
-  );
+  return <FloatingParticles count={count} particleClassName="bg-sand/20" sizeRange={4} durationMin={8} durationRange={12} />;
 }
 
 export default function HomePage() {
@@ -63,11 +47,18 @@ export default function HomePage() {
     });
   }, []);
 
+  const showStatus = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setStatusMessage(message);
+    setStatusType(type);
+    setShowStatusModal(true);
+    setTimeout(() => setShowStatusModal(false), 3000);
+  }, []);
+
   useEffect(() => {
     const loadHomeData = async () => {
       try {
         const [propertiesData, agentsData, neighborhoodsData, testimonialsData] = await Promise.all([
-          getProperties({ status: 'approved' }),
+          getProperties({ status: 'available' }),
           getAgents(),
           getNeighborhoods(),
           getTestimonials(),
@@ -90,7 +81,7 @@ export default function HomePage() {
       }
     };
     void loadHomeData();
-  }, []);
+  }, [showStatus]);
 
   const toggleFavorite = async (propertyId: number) => {
     if (!isLoggedIn()) {
@@ -109,13 +100,6 @@ export default function HomePage() {
     } catch {
       showStatus('Failed to update favorites.', 'error');
     }
-  };
-
-  const showStatus = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
-    setStatusMessage(message);
-    setStatusType(type);
-    setShowStatusModal(true);
-    setTimeout(() => setShowStatusModal(false), 3000);
   };
 
   useEffect(() => {
@@ -251,21 +235,21 @@ export default function HomePage() {
                 <div className="flex items-center gap-2 bg-white/8 hover:bg-white/12 rounded-xl px-4 py-3.5 transition-colors group">
                   <Home className="w-5 h-5 text-sand group-hover:scale-110 transition-transform" />
                   <select className="bg-transparent text-white text-sm w-full focus:outline-none">
-                    <option value="" className="text-navy">Property Type</option>
-                    <option value="house" className="text-navy">House & Lot</option>
-                    <option value="condo" className="text-navy">Condominium</option>
-                    <option value="townhome" className="text-navy">Townhouse</option>
-                    <option value="lot" className="text-navy">Lot Only</option>
+                    <option value="">Property Type</option>
+                    <option value="house">House & Lot</option>
+                    <option value="condo">Condominium</option>
+                    <option value="townhome">Townhouse</option>
+                    <option value="lot">Lot Only</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-2 bg-white/8 hover:bg-white/12 rounded-xl px-4 py-3.5 transition-colors group">
                   <TrendingUp className="w-5 h-5 text-sand group-hover:scale-110 transition-transform" />
                   <select className="bg-transparent text-white text-sm w-full focus:outline-none">
-                    <option value="" className="text-navy">Price Range</option>
-                    <option value="0-5000000" className="text-navy">Under ₱5M</option>
-                    <option value="5000000-10000000" className="text-navy">₱5M - ₱10M</option>
-                    <option value="10000000-20000000" className="text-navy">₱10M - ₱20M</option>
-                    <option value="20000000+" className="text-navy">₱20M+</option>
+                    <option value="">Price Range</option>
+                    <option value="0-5000000">Under ₱5M</option>
+                    <option value="5000000-10000000">₱5M - ₱10M</option>
+                    <option value="10000000-20000000">₱10M - ₱20M</option>
+                    <option value="20000000+">₱20M+</option>
                   </select>
                 </div>
                 <Link
@@ -550,7 +534,7 @@ export default function HomePage() {
               >
                 <div className="aspect-square overflow-hidden relative img-reveal">
                   {agent.avatar ? (
-                    <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+                    <img src={resolveAssetUrl(agent.avatar)} alt={agent.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-sand/20 to-sand/5 flex items-center justify-center text-5xl font-display font-bold text-sand/40">
                       {agent.name.charAt(0)}
@@ -674,8 +658,8 @@ export default function HomePage() {
       {/* ═══════════════════════════════════════════════════
           FOOTER — Enhanced with gradients
          ═══════════════════════════════════════════════════ */}
-      <footer className="relative py-20 lg:py-24 px-6 lg:px-[4vw] bg-[#050d17] overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 section-divider" />
+      <footer className="relative py-20 lg:py-28 px-6 lg:px-[4vw] bg-[#040c16] overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-sand/10 to-transparent" />
         <Particles count={8} />
 
         <div className="max-w-7xl mx-auto relative">
@@ -752,25 +736,23 @@ export default function HomePage() {
     {/* Toast Notification — Minimal & non-intrusive */}
     {showStatusModal && statusMessage && (
       <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] toast-enter">
-        <div className="flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl shadow-black/30 backdrop-blur-xl border border-white/[0.08] bg-[#0d1f35]/95 max-w-md">
-          <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-            statusType === 'success' ? 'bg-green-500/20' : statusType === 'error' ? 'bg-red-500/20' : 'bg-blue-500/20'
+        <div className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl shadow-black/40 backdrop-blur-xl border max-w-md ${
+          statusType === 'success' 
+            ? 'bg-[#0d2d1a]/90 border-green-500/20' 
+            : statusType === 'error' 
+            ? 'bg-[#2d0d0d]/90 border-red-500/20' 
+            : 'bg-[#0d1f35]/90 border-blue-500/20'
+        }`}>
+          <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${
+            statusType === 'success' ? 'bg-green-500/15' : statusType === 'error' ? 'bg-red-500/15' : 'bg-blue-500/15'
           }`}>
             {statusType === 'success' ? (
-              <CheckCircle className="w-4 h-4 text-green-400" />
+              <CheckCircle className="w-4.5 h-4.5 text-green-400" />
             ) : (
-              <AlertCircle className={`w-4 h-4 ${statusType === 'error' ? 'text-red-400' : 'text-blue-400'}`} />
+              <AlertCircle className={`w-4.5 h-4.5 ${statusType === 'error' ? 'text-red-400' : 'text-blue-400'}`} />
             )}
           </div>
           <p className="text-white text-sm font-medium flex-1">{statusMessage}</p>
-          <button
-            onClick={() => setShowStatusModal(false)}
-            className="flex-shrink-0 text-gray-blue hover:text-white transition-colors p-1"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
       </div>
     )}

@@ -29,15 +29,35 @@
     
     /* Custom EstateFlow Colors */
     --navy: #0A2540;
+    --navy-light: #0d2d4a;
+    --navy-dark: #081b31;
     --sand: #D4A574;
+    --sand-light: #e0b586;
+    --sand-dark: #c18d57;
     --white: #FFFFFF;
     --mint: #E8F5E9;
     --gray-blue: #A8B8C8;
+    --gray-blue-light: #c4d0db;
     --light-bg: #F6F7F9;
     --surface-elevated: rgba(255, 255, 255, 0.05);
     --surface-border: rgba(255, 255, 255, 0.1);
     --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.18);
     --shadow-glow: 0 0 0 1px rgba(212, 165, 116, 0.2), 0 14px 40px rgba(0, 0, 0, 0.25);
+    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-card-hover: 0 20px 48px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.1);
+    
+    /* Z-index scale */
+    --z-dropdown: 50;
+    --z-sticky: 60;
+    --z-header: 100;
+    --z-overlay: 199;
+    --z-drawer: 200;
+    --z-modal: 300;
+    --z-grain: 9999;
+    
+    /* Spacing scale */
+    --section-py: clamp(5rem, 8vw, 9rem);
+    --section-px: clamp(1.5rem, 4vw, 4vw);
   }
 }
 
@@ -53,14 +73,16 @@
   body {
     @apply bg-[#0A2540] text-white antialiased;
     font-family: 'Inter', sans-serif;
-    line-height: 1.5;
+    line-height: 1.6;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-image:
-      radial-gradient(circle at 10% 10%, rgba(212, 165, 116, 0.08), transparent 36%),
-      radial-gradient(circle at 85% 0%, rgba(255, 255, 255, 0.05), transparent 30%),
+      radial-gradient(ellipse 80% 60% at 10% 8%, rgba(212, 165, 116, 0.06), transparent),
+      radial-gradient(ellipse 50% 50% at 90% 5%, rgba(168, 184, 200, 0.04), transparent),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(212, 165, 116, 0.03), transparent),
       linear-gradient(180deg, #0a2540 0%, #081b31 100%);
+    background-attachment: fixed;
     overflow-x: hidden;
   }
 
@@ -214,35 +236,67 @@
 
 /* Button styles */
 .btn-primary {
-  @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wider uppercase transition-all duration-300;
-  background: linear-gradient(180deg, rgba(212, 165, 116, 0.09), rgba(212, 165, 116, 0.02));
-  border: 1px solid rgba(212, 165, 116, 0.7);
+  @apply inline-flex items-center justify-center px-7 py-3.5 text-sm font-medium tracking-wider uppercase transition-all duration-300;
+  background: linear-gradient(180deg, rgba(212, 165, 116, 0.12), rgba(212, 165, 116, 0.03));
+  border: 1px solid rgba(212, 165, 116, 0.6);
   color: #D4A574;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 20px rgba(0, 0, 0, 0.15);
+  border-radius: 0.75rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0, 0, 0, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(212, 165, 116, 0.15), rgba(212, 165, 116, 0.05));
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px) scale(1.01);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-glow);
-  background: linear-gradient(180deg, rgba(212, 165, 116, 0.2), rgba(212, 165, 116, 0.06));
+  border-color: rgba(212, 165, 116, 0.8);
+}
+
+.btn-primary:hover::before {
+  opacity: 1;
 }
 
 .btn-primary:active {
-  transform: scale(0.98);
+  transform: translateY(0) scale(0.98);
 }
 
 .btn-solid {
-  @apply inline-flex items-center justify-center px-6 py-3 text-sm font-medium tracking-wider uppercase transition-all duration-300;
+  @apply inline-flex items-center justify-center px-7 py-3.5 text-sm font-semibold tracking-wider uppercase transition-all duration-300;
   background: linear-gradient(135deg, #d9aa78 0%, #c99660 100%);
   border: 1px solid #D4A574;
   color: #0A2540;
-  box-shadow: 0 10px 28px rgba(212, 165, 116, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(212, 165, 116, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-solid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .btn-solid:hover {
-  transform: translateY(-2px) scale(1.01);
+  transform: translateY(-2px);
   background: linear-gradient(135deg, #e0b586 0%, #c18d57 100%);
-  box-shadow: 0 14px 32px rgba(212, 165, 116, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  box-shadow: 0 12px 32px rgba(212, 165, 116, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.btn-solid:hover::before {
+  opacity: 1;
 }
 
 .btn-solid:active,
@@ -274,13 +328,33 @@
 
 /* Form styles */
 .form-input {
-  @apply w-full bg-transparent border-b border-[rgba(255,255,255,0.35)] py-3 text-white placeholder:text-[#A8B8C8] focus:outline-none focus:border-[#D4A574] transition-colors;
+  @apply w-full bg-transparent border-b border-[rgba(255,255,255,0.25)] py-3.5 text-white placeholder:text-[#7a8ea0] focus:outline-none focus:border-[#D4A574] transition-all;
   border-bottom-width: 1.5px;
+  background-image: linear-gradient(to right, #D4A574, #D4A574);
+  background-size: 0% 1.5px;
+  background-position: left bottom;
+  background-repeat: no-repeat;
+  transition: background-size 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
+}
+
+.form-input:focus {
+  background-size: 100% 1.5px;
+  border-color: transparent;
 }
 
 .form-input-light {
-  @apply w-full bg-transparent border-b border-[rgba(10,37,64,0.25)] py-3 text-[#0A2540] placeholder:text-[#6B7280] focus:outline-none focus:border-[#D4A574] transition-colors;
+  @apply w-full bg-transparent border-b border-[rgba(10,37,64,0.2)] py-3.5 text-[#0A2540] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#D4A574] transition-all;
   border-bottom-width: 1.5px;
+  background-image: linear-gradient(to right, #D4A574, #D4A574);
+  background-size: 0% 1.5px;
+  background-position: left bottom;
+  background-repeat: no-repeat;
+  transition: background-size 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
+}
+
+.form-input-light:focus {
+  background-size: 100% 1.5px;
+  border-color: transparent;
 }
 
 /* Property card hover */
@@ -295,7 +369,7 @@
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 7px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -303,19 +377,80 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #1a3a5c, #264a6e);
-  border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.04);
+  background: linear-gradient(180deg, rgba(212, 165, 116, 0.3), rgba(26, 58, 92, 0.8));
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #2a5a8c, #D4A574);
+  background: linear-gradient(180deg, rgba(212, 165, 116, 0.6), rgba(42, 90, 140, 0.9));
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1a3a5c #0A2540;
+  scrollbar-color: rgba(212, 165, 116, 0.3) #0A2540;
+}
+
+/* Section divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 5%, rgba(212, 165, 116, 0.15) 30%, rgba(212, 165, 116, 0.15) 70%, transparent 95%);
+}
+
+/* Badge hover effect */
+.badge-hover {
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.badge-hover:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Status badges with better contrast */
+.status-badge {
+  @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg backdrop-blur-sm;
+}
+
+.status-badge-success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.status-badge-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.status-badge-warning {
+  background: rgba(234, 179, 8, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(234, 179, 8, 0.2);
+}
+
+.status-badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* Loading skeleton */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
 /* Selection */
